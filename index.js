@@ -147,6 +147,10 @@ app.get('/leads', (req, res) => {
 });
 
 app.post('/webhook', async (req, res) => {
+    if (process.env.SHEILA_PAUSADA === 'true') {
+        console.log("LOG_DEBUG: Sheila pausada pela variável de ambiente.");
+        return res.sendStatus(200); 
+    }
     const msgData = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
     if (!msgData) return res.sendStatus(200);
     const sender = msgData.from;
