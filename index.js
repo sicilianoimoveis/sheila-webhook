@@ -150,6 +150,7 @@ app.post('/webhook', async (req, res) => {
     const msgData = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
     if (!msgData) return res.sendStatus(200);
     const sender = msgData.from;
+    atualizarIndiceLeads(sender, null, "WhatsApp");
     const textoCliente = msgData.text?.body;
     const conversa = obterHistorico(sender);
     const referral = msgData?.referral?.source_url;
