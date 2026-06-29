@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Central de Leads - Siciliano Imóveis</title>
+    <style>
+        :root { --azul-siciliano: #1a1f3c; --cinza-chat: #d3d9de; --branco: #ffffff; }
+        body { font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; background-color: #f0f2f5; }
+        
+        #sidebar { width: 360px; background: var(--azul-siciliano); display: flex; flex-direction: column; }
+        header { padding: 25px; text-align: center; }
+        header img { width: 110px; }
+        
+        .search-container { padding: 20px; background: var(--cinza-chat); }
+        .label-conversas { font-weight: bold; color: var(--azul-siciliano); margin-bottom: 10px; display: block; font-size: 14px; }
+        .search-box, .filter-select { width: 100%; padding: 10px; margin-top: 8px; border: 1px solid #bbb; border-radius: 6px; box-sizing: border-box; }
+        
+        #leads-container { flex: 1; overflow-y: auto; padding: 15px; background: var(--cinza-chat); }
+        
+        /* Cards */
+        .card { background: var(--branco); padding: 14px; margin-bottom: 12px; border-radius: 8px; border-left: 6px solid var(--azul-siciliano); box-shadow: 0 2px 4px rgba(0,0,0,0.08); cursor: pointer; transition: 0.3s; }
+        .card:hover { transform: translateX(5px); background: #fdfdfd; }
+        .card h3 { margin: 0 0 5px 0; color: var(--azul-siciliano); font-size: 16px; }
+        .card p { margin: 2px 0; font-size: 12px; color: #555; }
+        .date { font-weight: bold; color: #888; font-size: 11px; display: block; margin-top: 5px; }
+        .btn-crm { margin-top: 10px; width: 100%; padding: 8px; border: none; border-radius: 4px; cursor: pointer; color: white; font-weight: bold; }
+
+        #main-chat { flex: 1; display: flex; flex-direction: column; background: var(--cinza-chat); position: relative; }
+        #chat-frame { width: 100%; height: 100%; border: none; }
+        .placeholder { display: flex; align-items: center; justify-content: center; height: 100%; color: #555; font-size: 1.2em; }
+        
+        .back-btn { display: none; padding: 15px; background: var(--azul-siciliano); color: white; border: none; font-size: 16px; cursor: pointer; }
+        @media (max-width: 768px) {
+            #sidebar { width: 100%; }
+            #main-chat { position: absolute; top: 0; left: 100%; width: 100%; height: 100%; z-index: 100; }
+            #main-chat.mobile-active { left: 0; }
+            .back-btn { display: block; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <header><img src="https://img.apre.me/M7UtVktPLcjSy00sSk8sKc7LVMhPz8-RL07NyUyzzVSztDQwtU0GAA.jpeg" alt="Logo"></header>
+        
+       <div class="search-container">
+            <span class="label-conversas">FILTROS</span>
+            
+            <input type="text" id="searchInput" class="search-box" placeholder="Buscar por nome ou telefone...">
+            
+            <select id="filterOrigem" class="filter-select">
+                <option value="">Todas as origens</option>
+                <option value="instagram">Instagram</option>
+                <option value="whatsapp">WhatsApp</option>
+            </select>
+            
+            <select id="filterStatus" class="filter-select">
+                <option value="todos">Status: Todos</option>
+                <option value="enviado">Já no CRM</option>
+                <option value="pendente">Pendente CRM</option>
+            </select>
+        </div>
+
+        <div style="padding: 15px 20px 5px 20px; background: var(--cinza-chat);">
+            <span class="label-conversas" style="margin: 0;">CONVERSAS</span>
+        </div>
+
+        <div id="leads-container"></div>
+    </div>
+    <div id="main-chat">
+        <button class="back-btn" onclick="voltar()">← Voltar</button>
+        <div id="placeholder" class="placeholder">Selecione um lead na lista ao lado</div>
+        <iframe id="chat-frame" style="display:none;"></iframe>
+    </div>
+
+    <script>
+        const token = "SEU_TOKEN_AQUI"; 
+        const mainChat = document.getElementById('main-chat');
+        const frame = document.getElementById('chat-frame');
+        const placeholder = document.getElementById('placeholder');
+
+        function voltar() { mainChat.classList.remove('mobile-active'); }
+
+        function enviarParaCRM(sender) {
+            fetch(`/enviar-crm/${sender}?token=${token}`, { method: 'POST' })
+            .then(res => res.text()).then(msg => { alert(msg); location.reload(); });
+        }
+
+        fetch(`/leads?token=${token}`)
+            .then(res => res.json())
+            .then(data => {
+                const container = document.getElementById('leads-container');
+                function renderLeads() {
+                    const query = document.getElementById('searchInput').value.toLowerCase();
+                    const origem = document.getElementById('filterOrigem').value.toLowerCase();
+                    const status = document.getElementById('filterStatus').value;
+
+                    container.innerHTML = '';
+                    data.filter(l => 
+                        (l.nome.toLowerCase().includes(query) || l.sender.includes(query)) &&
+                        (!origem || l.origem.toLowerCase().includes(origem)) &&
+                        (status === 'todos' || (status === 'enviado' ? l.enviadoParaCRM : !l.enviadoParaCRM))
+                    ).forEach(lead => {
+                        const date = new Date(lead.ultimaInteracao).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+                        const card = document.createElement('div');
+                        card.className = 'card';
+                        card.innerHTML = `
+                            <div onclick="abrirChat('${lead.sender}')">
+                                <h3>${lead.nome}</h3>
+                                <p>Tel: ${lead.sender}</p>
+                                <p>Origem: ${lead.origem}</p>
+                                <span class="date">Última: ${date}</span>
+                            </div>
+                            <button class="btn-crm" style="background:${lead.enviadoParaCRM ? '#28a745' : '#fd7e14'}" onclick="enviarParaCRM('${lead.sender}')">
+                                ${lead.enviadoParaCRM ? '✓ Enviado CRM' : 'Enviar ao CRM'}
+                            </button>
+                        `;
+                        container.appendChild(card);
+                    });
+                }
+                window.abrirChat = (sender) => {
+                    placeholder.style.display = 'none';
+                    frame.style.display = 'block';
+                    frame.src = `/chat/${sender}?token=${token}`;
+                    if(window.innerWidth <= 768) mainChat.classList.add('mobile-active');
+                };
+                ['searchInput', 'filterOrigem', 'filterStatus'].forEach(id => document.getElementById(id).addEventListener('input', renderLeads));
+                renderLeads();
+            });
+    </script>
+</body>
+</html>
