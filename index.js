@@ -101,8 +101,14 @@ function salvarHistorico(sender, conversa) {
         .catch(err => console.error("Erro ao salvar histórico:", err));
 }
 
-function atualizarIndiceLeads(sender, nome, origem, statusCRM = false) {
-    if (!leadsIndex[sender]) leadsIndex[sender] = {};
+function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId = null) {
+    if (!leadsIndex[sender]) leadsIndex[sender] = { imoveisInteresse: [] };
+    if (!leadsIndex[sender].imoveisInteresse) leadsIndex[sender].imoveisInteresse = [];
+    
+    if (imovelId && !leadsIndex[sender].imoveisInteresse.includes(imovelId)) {
+        leadsIndex[sender].imoveisInteresse.push(imovelId);
+    }
+
     leadsIndex[sender] = {
         ...leadsIndex[sender],
         sender: sender,
@@ -176,12 +182,27 @@ app.post('/webhook', async (req, res) => {
 
         if (functionCall) {
             if (functionCall.name === "qualificar_lead") {
-                let origemIdentificada = referral?.includes("instagram") ? "instagram" : "whatsapp_direto";
-                const nomeDoCliente = functionCall.args.nome || "Cliente";
-                const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
-                await axios.post('https://api.apresenta.me/webhook/integration/5099/ab72a9ac29cc5dba9a32eeb37f45461e', {
-                    nome: nomeDoCliente, celular: sender, origem: ORIGENS[origemIdentificada], mensagem: "Atendimento realizado pela Sheila", observacoes: `Resumo: ${functionCall.args.interesse}\nLink da conversa: ${linkEspelho}`
-                });
+        let origemIdentificada = referral?.includes("instagram") ? "instagram" : "whatsapp_direto";
+        const nomeDoCliente = functionCall.args.nome || "Cliente";
+        
+        // --- INSIRA ESTA LINHA AQUI ---
+        const listaImoveis = leadsIndex[sender]?.imoveisInteresse?.join(', ') || "Nenhum imóvel vinculado";
+        // ------------------------------
+
+        const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
+        
+        await axios.post('https://api.apresenta.me/webhook/integration/5099/ab72a9ac29cc5dba9a32eeb37f45461e', {
+            nome: nomeDoCliente, 
+            celular: sender, 
+            origem: ORIGENS[origemIdentificada], 
+            mensagem: "Atendimento realizado pela Sheila", 
+            // --- ATUALIZE ESTA LINHA ABAIXO ---
+            observacoes: `Resumo: ${functionCall.args.interesse}\nImóveis: ${listaImoveis}\nLink da conversa: ${linkEspelho}`
+        });
+
+        atualizarIndiceLeads(sender, nomeDoCliente);
+        // ... (resto do código)
+    }
                 atualizarIndiceLeads(sender, nomeDoCliente);
                 const msg = "Perfeito, acabei de encaminhar seu interesse para nossa equipe de corretores!";
                 conversa.push({ "role": "model", "parts": [{ "text": msg }] });
@@ -190,6 +211,10 @@ app.post('/webhook', async (req, res) => {
             } else if (functionCall.name === "buscar_imovel") {
                 const termo = functionCall.args.termo_de_busca;
                 const imovel = cacheImoveis.find(i => String(i.ListingID) === String(termo) || (i.DetailViewUrl && i.DetailViewUrl.includes(termo)));
+                if (imovel) {
+        atualizarIndiceLeads(sender, null, null, false, imovel.ListingID);
+    }
+                const v = (campo) => (campo && typeof campo === 'object' ? campo._ : campo) || 'Não informado';
                 const v = (campo) => (campo && typeof campo === 'object' ? campo._ : campo) || 'Não informado';
                 const feat = imovel?.Features?.Feature ? (Array.isArray(imovel.Features.Feature) ? imovel.Features.Feature.join(', ') : imovel.Features.Feature) : "Nenhuma característica extra informada.";
                 const enderecoReal = imovel && imovel.Location ? (Array.isArray(imovel.Location) ? imovel.Location[0].Address : imovel.Location.Address) : "Não informado";
@@ -224,7 +249,7 @@ app.post('/webhook-lead', async (req, res) => {
         conversa.push({ role: "model", parts: [{ text: `Olá ${name}, recebemos sua solicitação para o imóvel: ${link}.` }] });
         await enviarTemplateLead(celular, name, link);
         salvarHistorico(celular, conversa); 
-        atualizarIndiceLeads(celular, name, origin_desc?.name);
+        atualizarIndiceLeads(celular, name, origin_desc?.name, false, building_id);
         res.status(200).send("Lead processado");
     } catch (error) { console.error("Erro lead:", error.message); res.status(500).send("Erro"); }
 });
