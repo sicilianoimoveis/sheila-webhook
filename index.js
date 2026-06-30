@@ -168,12 +168,26 @@ app.post('/webhook', async (req, res) => {
     try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`;
         conversa.push({ "role": "user", "parts": [{ "text": textoCliente }] });
-        const payloadInicial = {
+       // Localize o payloadInicial dentro do seu app.post('/webhook', ...)
+const payloadInicial = {
             "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT || "Você é a Sheila, corretora da Siciliano Imóveis." }] },
             "contents": conversa,
             "tools": [{ "functionDeclarations": [
-                { "name": "buscar_imovel", "description": "Consulta dados técnicos (rua, suites, vagas, features) pelo código ou URL.", "parameters": { "type": "object", "properties": { "termo_de_busca": { "type": "string" } }, "required": ["termo_de_busca"] } },
-                { "name": "qualificar_lead", "description": "Chame ao perceber interesse claro em visita ou falar com corretor. Sempre extraia o nome do cliente da conversa.", "parameters": { "type": "object", "properties": { "interesse": { "type": "string" }, "nome": { "type": "string" } }, "required": ["interesse", "nome"] } }
+                { 
+                    "name": "iniciar_captacao", 
+                    "description": "Chamar quando o cliente expressar desejo de vender, alugar ou anunciar o próprio imóvel.", 
+                    "parameters": { "type": "object", "properties": {}, "required": [] } 
+                },
+                { 
+                    "name": "buscar_imovel", 
+                    "description": "Consulta dados técnicos (rua, suites, vagas, features) pelo código ou URL.", 
+                    "parameters": { "type": "object", "properties": { "termo_de_busca": { "type": "string" } }, "required": ["termo_de_busca"] } 
+                },
+                { 
+                    "name": "qualificar_lead", 
+                    "description": "Chame ao perceber interesse claro em visita ou falar com corretor. Sempre extraia o nome do cliente da conversa.", 
+                    "parameters": { "type": "object", "properties": { "interesse": { "type": "string" }, "nome": { "type": "string" } }, "required": ["interesse", "nome"] } 
+                }
             ]}]
         };
         const response = await axios.post(url, payloadInicial);
@@ -183,7 +197,26 @@ app.post('/webhook', async (req, res) => {
         // ... (mantenha o código até a linha que identifica o functionCall)
 
         if (functionCall) {
-            if (functionCall.name === "qualificar_lead") {
+    // 1. Lógica de Captacao (Nova)
+   if (functionCall.name === "iniciar_captacao") {
+    // Garante que o lead exista no índice antes de acessar propriedades
+    if (!leadsIndex[sender]) {
+        atualizarIndiceLeads(sender, null, "WhatsApp"); 
+    }
+    
+    // Agora é seguro definir a categoria
+    leadsIndex[sender].categoria = 'captacao';
+    leadsIndex[sender].ultimaInteracao = new Date().toISOString();
+    fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
+    
+    // Segue com a resposta padrão da Sheila pedindo o endereço
+    const resposta = "Entendido! Para que nossa equipe de captação avalie seu imóvel, qual o endereço completo dele?";
+    await enviarMensagem(sender, resposta);
+    conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
+    salvarHistorico(sender, conversa);
+}
+      
+       else  if (functionCall.name === "qualificar_lead") {
                 // ... (seu código de qualificar_lead permanece igual)
                 let origemIdentificada = referral?.includes("instagram") ? "instagram" : "whatsapp_direto";
                 const nomeDoCliente = functionCall.args.nome || "Cliente";
@@ -290,6 +323,61 @@ app.post('/enviar-crm/:sender', async (req, res) => {
         res.status(500).send("Erro ao enviar para CRM.");
     }
 });
+// --- MONITORAMENTO AUTOMÁTICO DE LEADS (CAPTAÇÃO E REENGAJAMENTO) ---
+async function monitorarLeads() {
+    const agora = new Date();
+    
+    for (const sender in leadsIndex) {
+        const lead = leadsIndex[sender];
+        if (lead.enviadoParaCRM) continue; // Pula se já foi enviado
+
+        const ultimaInteracao = new Date(lead.ultimaInteracao);
+        const diffHoras = (agora - ultimaInteracao) / (1000 * 60 * 60);
+
+        // 1. Lógica de CAPTAÇÃO (Timeout de 2 horas sem endereço)
+        if (lead.categoria === 'captacao' && diffHoras >= 2) {
+            console.log(`LOG_DEBUG: Timeout de captação para ${sender}. Encaminhando.`);
+            await forcarEnvioCRM(sender, "Encaminhamento automático: Lead de captação não forneceu endereço em 2h.");
+            continue;
+        }
+
+        // 2. Lógica de REENGAJAMENTO (24 horas sem resposta do cliente)
+        if (diffHoras >= 24) {
+            console.log(`LOG_DEBUG: Reengajando lead inativo: ${sender}`);
+            const msgReengajamento = "Oi! Notei que não tivemos retorno. Ainda tem interesse no imóvel ou precisa de ajuda com algo mais específico?";
+            await enviarMensagem(sender, msgReengajamento);
+            
+            // Adiciona ao histórico para o Gemini saber que enviamos
+            const conversa = historicos[sender] || [];
+            conversa.push({ "role": "model", "parts": [{ "text": msgReengajamento }] });
+            salvarHistorico(sender, conversa);
+            
+            lead.ultimaInteracao = agora.toISOString(); // Atualiza para não repetir o envio em 30 min
+        }
+    }
+}
+
+// Executa a verificação a cada 30 minutos (1.800.000 ms)
+setInterval(monitorarLeads, 1800000);
+
+// Função auxiliar para forçar o envio ao CRM
+async function forcarEnvioCRM(sender, obs) {
+    const lead = leadsIndex[sender];
+    try {
+        const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
+        await axios.post('https://api.apresenta.me/webhook/integration/5099/ab72a9ac29cc5dba9a32eeb37f45461e', {
+            nome: lead.nome || "Cliente",
+            celular: sender,
+            origem: ORIGENS[lead.origem] || "5159",
+            mensagem: "Encaminhamento automático",
+            observacoes: `Sheila: ${obs}\nLink da conversa: ${linkEspelho}`
+        });
+        lead.enviadoParaCRM = true;
+        fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
+    } catch (err) {
+        console.error("Erro ao forçar envio ao CRM:", err.message);
+    }
+}
 
 // --- INICIALIZAÇÃO BLINDADA E TOLERANTE A FALHAS ---
 const PORT = process.env.PORT || 8080;
@@ -297,10 +385,8 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`LOG_DEBUG: Servidor online na porta ${PORT}`);
 
-    // Função de carregamento com verificação de existência e "retry"
     const carregarDados = async () => {
         try {
-            // Garante que o diretório existe
             const dir = path.dirname(FILE_PATH);
             if (!fs.existsSync(dir)) {
                 console.log("LOG_DEBUG: Diretório de dados não encontrado, criando...");
@@ -323,7 +409,6 @@ app.listen(PORT, '0.0.0.0', () => {
         }
     };
 
-    // Tenta carregar os dados agora e repete em 5 segundos caso o volume ainda esteja sendo montado
     carregarDados();
     setTimeout(carregarDados, 5000); 
 });
