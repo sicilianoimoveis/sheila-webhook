@@ -301,7 +301,7 @@ const payloadInicial = {
             conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
             salvarHistorico(sender, conversa);
         }
-        } // Fechamento do else if buscar_imovel_filtros
+      
 
         } else if (contentResponse?.parts?.[0]?.text) {
             conversa.push({ "role": "model", "parts": [{ "text": contentResponse.parts[0].text }] });
