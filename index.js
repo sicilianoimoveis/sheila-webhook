@@ -200,9 +200,7 @@ app.post('/webhook', async (req, res) => {
 
     // 3. Só agora chamamos a atualização
     atualizarIndiceLeads(sender, nomeDoCliente);
-    // ... resto do código ...
-}
-                atualizarIndiceLeads(sender, nomeDoCliente);
+  
                 const msg = "Perfeito, acabei de encaminhar seu interesse para nossa equipe de corretores!";
                 conversa.push({ "role": "model", "parts": [{ "text": msg }] });
                 await enviarMensagem(sender, msg);
