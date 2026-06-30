@@ -181,28 +181,27 @@ app.post('/webhook', async (req, res) => {
         const functionCall = contentResponse?.parts?.[0]?.functionCall;
 
         if (functionCall) {
-            if (functionCall.name === "qualificar_lead") {
-        let origemIdentificada = referral?.includes("instagram") ? "instagram" : "whatsapp_direto";
-        const nomeDoCliente = functionCall.args.nome || "Cliente";
-        
-        // --- INSIRA ESTA LINHA AQUI ---
-        const listaImoveis = leadsIndex[sender]?.imoveisInteresse?.join(', ') || "Nenhum imóvel vinculado";
-        // ------------------------------
+           if (functionCall.name === "qualificar_lead") {
+    let origemIdentificada = referral?.includes("instagram") ? "instagram" : "whatsapp_direto";
+    
+    // 1. Defina as variáveis ANTES de usá-las no axios.post
+    const nomeDoCliente = functionCall.args.nome || "Cliente";
+    const listaImoveis = leadsIndex[sender]?.imoveisInteresse?.join(', ') || "Nenhum imóvel vinculado";
+    const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
+    
+    // 2. Agora o axios.post terá acesso ao nomeDoCliente e listaImoveis
+    await axios.post('https://api.apresenta.me/webhook/integration/5099/ab72a9ac29cc5dba9a32eeb37f45461e', {
+        nome: nomeDoCliente, 
+        celular: sender, 
+        origem: ORIGENS[origemIdentificada], 
+        mensagem: "Atendimento realizado pela Sheila", 
+        observacoes: `Resumo: ${functionCall.args.interesse}\nImóveis: ${listaImoveis}\nLink da conversa: ${linkEspelho}`
+    });
 
-        const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
-        
-        await axios.post('https://api.apresenta.me/webhook/integration/5099/ab72a9ac29cc5dba9a32eeb37f45461e', {
-            nome: nomeDoCliente, 
-            celular: sender, 
-            origem: ORIGENS[origemIdentificada], 
-            mensagem: "Atendimento realizado pela Sheila", 
-            // --- ATUALIZE ESTA LINHA ABAIXO ---
-            observacoes: `Resumo: ${functionCall.args.interesse}\nImóveis: ${listaImoveis}\nLink da conversa: ${linkEspelho}`
-        });
-
-        atualizarIndiceLeads(sender, nomeDoCliente);
-        // ... (resto do código)
-    }
+    // 3. Só agora chamamos a atualização
+    atualizarIndiceLeads(sender, nomeDoCliente);
+    // ... resto do código ...
+}
                 atualizarIndiceLeads(sender, nomeDoCliente);
                 const msg = "Perfeito, acabei de encaminhar seu interesse para nossa equipe de corretores!";
                 conversa.push({ "role": "model", "parts": [{ "text": msg }] });
