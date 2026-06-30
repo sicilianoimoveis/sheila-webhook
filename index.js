@@ -226,7 +226,7 @@ app.post('/webhook', async (req, res) => {
                     await enviarMensagem(sender, texto); 
                     salvarHistorico(sender, conversa); 
                 }
-            }
+            
         } else if (contentResponse?.parts?.[0]?.text) {
             conversa.push({ "role": "model", "parts": [{ "text": contentResponse.parts[0].text }] });
             await enviarMensagem(sender, contentResponse.parts[0].text);
