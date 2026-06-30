@@ -282,31 +282,41 @@ const payloadInicial = {
             } // Fechamento do else if buscar_imovel
 
             else if (functionCall.name === "buscar_imoveis_filtros") {
-            const { bairro, quartos, precoMax, tipo } = functionCall.args; // Adicionamos 'tipo'
+    const { bairro, quartos, precoMax, tipo } = functionCall.args;
     
-const resultados = cacheImoveis.filter(i => {
-    const b = i.Location?.Neighborhood?.toLowerCase() || "";
-    const q = parseInt(i.Details?.Bedrooms) || 0;
-    const p = parseFloat(i.Details?.ListPrice) || 0;
-    const t = i.PropertyType?.toLowerCase() || ""; // Pega o PropertyType do XML
-    
-    // Verifica se o termo de tipo bate (ex: cliente pediu 'cobertura', ele checa 'penthouse')
-    const matchTipo = tipo ? t.includes(tipo.toLowerCase()) : true;
-    
-    return (!bairro || b.includes(bairro.toLowerCase())) &&
-           (!quartos || q >= quartos) &&
-           (!precoMax || p <= precoMax) &&
-           matchTipo;
-}).slice(0, 3);
+    const resultados = cacheImoveis.filter(i => {
+        // Função auxiliar para extrair texto de campos que podem ser objetos ou strings
+        const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || "") : String(campo)).toLowerCase();
+        
+        const b = v(i.Location?.Neighborhood);
+        const q = parseInt(i.Details?.Bedrooms) || 0;
+        const p = parseFloat(i.Details?.ListPrice?._ || i.Details?.ListPrice) || 0;
+        const t = v(i.PropertyType);
+        
+        const matchBairro = !bairro || b.includes(bairro.toLowerCase());
+        const matchQuartos = !quartos || q >= quartos;
+        const matchPreco = !precoMax || p <= precoMax;
+        const matchTipo = !tipo || t.includes(tipo.toLowerCase());
+        
+        return matchBairro && matchQuartos && matchPreco && matchTipo;
+    }).slice(0, 3); 
 
-            let resposta = resultados.length > 0 
-                ? "Encontrei estas opções para você:\n\n" + resultados.map(i => `📍 ${i.Location.Neighborhood} - ${i.Details.Bedrooms} quartos - R$ ${i.Details.ListPrice}\n🔗 ${i.DetailViewUrl}`).join('\n\n')
-                : "Não encontrei outras opções com essas características específicas agora. Gostaria que eu passasse seu contato e suas preferências para o corretor responsável te ajudar?";
-
-            await enviarMensagem(sender, resposta);
-            conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
-            salvarHistorico(sender, conversa);
+    if (resultados.length > 0) {
+        await enviarMensagem(sender, "Encontrei estas opções para você:");
+        for (const i of resultados) {
+            const preco = i.Details?.ListPrice?._ || i.Details?.ListPrice || "Consultar";
+            const resumo = `📍 ${i.Location?.Neighborhood || "Localização"} - ${i.Details?.Bedrooms || 0} quartos\n💰 R$ ${preco}\n🔗 ${i.DetailViewUrl || ""}`;
+            await enviarMensagem(sender, resumo);
+            await new Promise(resolve => setTimeout(resolve, 800));
         }
+        conversa.push({ "role": "model", "parts": [{ "text": "Enviei as opções." }] });
+    } else {
+        const msg = "Não encontrei imóveis com essas características agora. Gostaria que eu passasse seu contato para o corretor responsável?";
+        await enviarMensagem(sender, msg);
+        conversa.push({ "role": "model", "parts": [{ "text": msg }] });
+    }
+    salvarHistorico(sender, conversa);
+}
       
 
         } else if (contentResponse?.parts?.[0]?.text) {
