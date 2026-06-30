@@ -195,17 +195,18 @@ const payloadInicial = {
             "parameters": { "type": "object", "properties": { "termo_de_busca": { "type": "string" } }, "required": ["termo_de_busca"] } 
         },
         { 
-            "name": "buscar_imoveis_filtros", 
-            "description": "Use para listar opções quando o cliente pedir sugestões com filtros como bairro, quartos, vagas ou preço (ex: 'outras opções de 3 quartos em Icaraí').", 
-            "parameters": { 
-                "type": "object", 
-                "properties": { 
-                    "bairro": { "type": "string" }, 
-                    "quartos": { "type": "number" }, 
-                    "precoMax": { "type": "number" } 
-                } 
-            } 
-        },
+    "name": "buscar_imoveis_filtros", 
+    "description": "Busca imóveis com filtros.", 
+    "parameters": { 
+        "type": "object", 
+        "properties": { 
+            "bairro": { "type": "string" }, 
+            "quartos": { "type": "number" }, 
+            "precoMax": { "type": "number" },
+            "tipo": { "type": "string", "description": "Tipo do imóvel, ex: 'cobertura', 'apartamento', 'casa'" }
+        } 
+    } 
+},
         { 
             "name": "qualificar_lead", 
             "description": "Chame ao perceber interesse claro em visita ou falar com corretor. Sempre extraia o nome do cliente da conversa.", 
@@ -281,17 +282,22 @@ const payloadInicial = {
             } // Fechamento do else if buscar_imovel
 
             else if (functionCall.name === "buscar_imoveis_filtros") {
-            const { bairro, quartos, precoMax } = functionCall.args;
-            
-            const resultados = cacheImoveis.filter(i => {
-                const b = i.Location?.Neighborhood?.toLowerCase() || "";
-                const q = parseInt(i.Details?.Bedrooms) || 0;
-                const p = parseFloat(i.Details?.ListPrice) || 0;
-                
-                return (!bairro || b.includes(bairro.toLowerCase())) &&
-                       (!quartos || q >= quartos) &&
-                       (!precoMax || p <= precoMax);
-            }).slice(0, 3); 
+            const { bairro, quartos, precoMax, tipo } = functionCall.args; // Adicionamos 'tipo'
+    
+const resultados = cacheImoveis.filter(i => {
+    const b = i.Location?.Neighborhood?.toLowerCase() || "";
+    const q = parseInt(i.Details?.Bedrooms) || 0;
+    const p = parseFloat(i.Details?.ListPrice) || 0;
+    const t = i.PropertyType?.toLowerCase() || ""; // Pega o PropertyType do XML
+    
+    // Verifica se o termo de tipo bate (ex: cliente pediu 'cobertura', ele checa 'penthouse')
+    const matchTipo = tipo ? t.includes(tipo.toLowerCase()) : true;
+    
+    return (!bairro || b.includes(bairro.toLowerCase())) &&
+           (!quartos || q >= quartos) &&
+           (!precoMax || p <= precoMax) &&
+           matchTipo;
+}).slice(0, 3);
 
             let resposta = resultados.length > 0 
                 ? "Encontrei estas opções para você:\n\n" + resultados.map(i => `📍 ${i.Location.Neighborhood} - ${i.Details.Bedrooms} quartos - R$ ${i.Details.ListPrice}\n🔗 ${i.DetailViewUrl}`).join('\n\n')
