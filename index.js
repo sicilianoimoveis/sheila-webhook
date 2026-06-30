@@ -310,7 +310,8 @@ else if (functionCall.name === "processar_captacao") {
             } // Fechamento do else if buscar_imovel
 
        else if (functionCall.name === "buscar_imoveis_filtros") {
-    const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
+    console.log("Filtros recebidos:", functionCall.args);
+           const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
     
     const resultados = cacheImoveis.filter(i => {
         const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || "") : String(campo)).toLowerCase();
