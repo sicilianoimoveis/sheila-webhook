@@ -184,7 +184,7 @@ app.post('/webhook', async (req, res) => {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`;
         conversa.push({ "role": "user", "parts": [{ "text": textoCliente }] });
        // Localize o payloadInicial dentro do seu app.post('/webhook', ...)
-const payloadInicial = {
+  const payloadInicial = {
     "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT || "Você é a Sheila, corretora da Siciliano Imóveis." }] },
     "contents": conversa,
     "tools": [{ "functionDeclarations": [
@@ -194,23 +194,32 @@ const payloadInicial = {
             "parameters": { "type": "object", "properties": {}, "required": [] } 
         },
         { 
+            "name": "processar_captacao", 
+            "description": "Use para registrar o endereço ou localização quando o cliente fornecer durante a captação.", 
+            "parameters": { 
+                "type": "object", 
+                "properties": { "endereco": { "type": "string", "description": "O endereço do imóvel" } }, 
+                "required": ["endereco"] 
+            } 
+        },
+        { 
             "name": "buscar_imovel", 
             "description": "Consulta dados técnicos (rua, suites, vagas, features) pelo código ou URL.", 
             "parameters": { "type": "object", "properties": { "termo_de_busca": { "type": "string" } }, "required": ["termo_de_busca"] } 
         },
         { 
-    "name": "buscar_imoveis_filtros", 
-    "description": "Busca imóveis com filtros.", 
-    "parameters": { 
-        "type": "object", 
-        "properties": { 
-            "bairro": { "type": "string" }, 
-            "quartos": { "type": "number" }, 
-            "precoMax": { "type": "number" },
-            "tipo": { "type": "string", "description": "Tipo do imóvel, ex: 'cobertura', 'apartamento', 'casa'" }
-        } 
-    } 
-},
+            "name": "buscar_imoveis_filtros", 
+            "description": "Use para listar opções quando o cliente pedir sugestões com filtros como bairro, quartos, vagas ou preço.", 
+            "parameters": { 
+                "type": "object", 
+                "properties": { 
+                    "bairro": { "type": "string" }, 
+                    "quartos": { "type": "number" }, 
+                    "precoMax": { "type": "number" },
+                    "tipo": { "type": "string", "description": "Tipo do imóvel, ex: 'cobertura', 'apartamento', 'casa'" }
+                } 
+            } 
+        },
         { 
             "name": "qualificar_lead", 
             "description": "Chame ao perceber interesse claro em visita ou falar com corretor. Sempre extraia o nome do cliente da conversa.", 
@@ -243,7 +252,20 @@ const payloadInicial = {
     conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
     salvarHistorico(sender, conversa);
 }
-      
+else if (functionCall.name === "processar_captacao") {
+            const { endereco } = functionCall.args;
+            
+            // 1. Finaliza a captação alterando a categoria para 'processado'
+            leadsIndex[sender].categoria = 'processado'; 
+            leadsIndex[sender].ultimaInteracao = new Date().toISOString();
+            fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
+            
+            // 2. Resposta de confirmação
+            const resposta = "Perfeito, anotei o endereço! Vou passar essas informações para nossa equipe de captação entrar em contato com você em breve.";
+            await enviarMensagem(sender, resposta);
+            conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
+            salvarHistorico(sender, conversa);
+        }      
        else  if (functionCall.name === "qualificar_lead") {
                 // ... (seu código de qualificar_lead permanece igual)
                 let origemIdentificada = referral?.includes("instagram") ? "instagram" : "whatsapp_direto";
