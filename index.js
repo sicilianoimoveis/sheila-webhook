@@ -180,37 +180,36 @@ app.post('/webhook', async (req, res) => {
         const contentResponse = response.data?.candidates?.[0]?.content;
         const functionCall = contentResponse?.parts?.[0]?.functionCall;
 
-        if (functionCall) {
-           if (functionCall.name === "qualificar_lead") {
-    let origemIdentificada = referral?.includes("instagram") ? "instagram" : "whatsapp_direto";
-    
-    // 1. Defina as variáveis ANTES de usá-las no axios.post
-    const nomeDoCliente = functionCall.args.nome || "Cliente";
-    const listaImoveis = leadsIndex[sender]?.imoveisInteresse?.join(', ') || "Nenhum imóvel vinculado";
-    const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
-    
-    // 2. Agora o axios.post terá acesso ao nomeDoCliente e listaImoveis
-    await axios.post('https://api.apresenta.me/webhook/integration/5099/ab72a9ac29cc5dba9a32eeb37f45461e', {
-        nome: nomeDoCliente, 
-        celular: sender, 
-        origem: ORIGENS[origemIdentificada], 
-        mensagem: "Atendimento realizado pela Sheila", 
-        observacoes: `Resumo: ${functionCall.args.interesse}\nImóveis: ${listaImoveis}\nLink da conversa: ${linkEspelho}`
-    });
+        // ... (mantenha o código até a linha que identifica o functionCall)
 
-    // 3. Só agora chamamos a atualização
-    atualizarIndiceLeads(sender, nomeDoCliente);
-  
+        if (functionCall) {
+            if (functionCall.name === "qualificar_lead") {
+                // ... (seu código de qualificar_lead permanece igual)
+                let origemIdentificada = referral?.includes("instagram") ? "instagram" : "whatsapp_direto";
+                const nomeDoCliente = functionCall.args.nome || "Cliente";
+                const listaImoveis = leadsIndex[sender]?.imoveisInteresse?.join(', ') || "Nenhum imóvel vinculado";
+                const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
+                
+                await axios.post('https://api.apresenta.me/webhook/integration/5099/ab72a9ac29cc5dba9a32eeb37f45461e', {
+                    nome: nomeDoCliente, 
+                    celular: sender, 
+                    origem: ORIGENS[origemIdentificada], 
+                    mensagem: "Atendimento realizado pela Sheila", 
+                    observacoes: `Resumo: ${functionCall.args.interesse}\nImóveis: ${listaImoveis}\nLink da conversa: ${linkEspelho}`
+                });
+
+                atualizarIndiceLeads(sender, nomeDoCliente);
                 const msg = "Perfeito, acabei de encaminhar seu interesse para nossa equipe de corretores!";
                 conversa.push({ "role": "model", "parts": [{ "text": msg }] });
                 await enviarMensagem(sender, msg);
                 salvarHistorico(sender, conversa); 
+            
             } else if (functionCall.name === "buscar_imovel") {
                 const termo = functionCall.args.termo_de_busca;
                 const imovel = cacheImoveis.find(i => String(i.ListingID) === String(termo) || (i.DetailViewUrl && i.DetailViewUrl.includes(termo)));
                 if (imovel) {
-        atualizarIndiceLeads(sender, null, null, false, imovel.ListingID);
-    }
+                    atualizarIndiceLeads(sender, null, null, false, imovel.ListingID);
+                }
                 const v = (campo) => (campo && typeof campo === 'object' ? campo._ : campo) || 'Não informado';
                 const feat = imovel?.Features?.Feature ? (Array.isArray(imovel.Features.Feature) ? imovel.Features.Feature.join(', ') : imovel.Features.Feature) : "Nenhuma característica extra informada.";
                 const enderecoReal = imovel && imovel.Location ? (Array.isArray(imovel.Location) ? imovel.Location[0].Address : imovel.Location.Address) : "Não informado";
@@ -223,7 +222,8 @@ app.post('/webhook', async (req, res) => {
                     await enviarMensagem(sender, texto); 
                     salvarHistorico(sender, conversa); 
                 }
-            
+            } // Fechamento do else if buscar_imovel
+
         } else if (contentResponse?.parts?.[0]?.text) {
             conversa.push({ "role": "model", "parts": [{ "text": contentResponse.parts[0].text }] });
             await enviarMensagem(sender, contentResponse.parts[0].text);
@@ -234,7 +234,6 @@ app.post('/webhook', async (req, res) => {
     }
     res.sendStatus(200);
 });
-
 app.post('/webhook-lead', async (req, res) => {
     const { name, phone, building_id, origin_desc } = req.body;
     const celular = phone ? phone.replace(/\D/g, '') : null;
