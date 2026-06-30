@@ -181,26 +181,38 @@ app.post('/webhook', async (req, res) => {
         conversa.push({ "role": "user", "parts": [{ "text": textoCliente }] });
        // Localize o payloadInicial dentro do seu app.post('/webhook', ...)
 const payloadInicial = {
-            "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT || "Você é a Sheila, corretora da Siciliano Imóveis." }] },
-            "contents": conversa,
-            "tools": [{ "functionDeclarations": [
-                { 
-                    "name": "iniciar_captacao", 
-                    "description": "Chamar quando o cliente expressar desejo de vender, alugar ou anunciar o próprio imóvel.", 
-                    "parameters": { "type": "object", "properties": {}, "required": [] } 
-                },
-                { 
-                    "name": "buscar_imovel", 
-                    "description": "Consulta dados técnicos (rua, suites, vagas, features) pelo código ou URL.", 
-                    "parameters": { "type": "object", "properties": { "termo_de_busca": { "type": "string" } }, "required": ["termo_de_busca"] } 
-                },
-                { 
-                    "name": "qualificar_lead", 
-                    "description": "Chame ao perceber interesse claro em visita ou falar com corretor. Sempre extraia o nome do cliente da conversa.", 
-                    "parameters": { "type": "object", "properties": { "interesse": { "type": "string" }, "nome": { "type": "string" } }, "required": ["interesse", "nome"] } 
-                }
-            ]}]
-        };
+    "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT || "Você é a Sheila, corretora da Siciliano Imóveis." }] },
+    "contents": conversa,
+    "tools": [{ "functionDeclarations": [
+        { 
+            "name": "iniciar_captacao", 
+            "description": "Chamar quando o cliente expressar desejo de vender, alugar ou anunciar o próprio imóvel.", 
+            "parameters": { "type": "object", "properties": {}, "required": [] } 
+        },
+        { 
+            "name": "buscar_imovel", 
+            "description": "Consulta dados técnicos (rua, suites, vagas, features) pelo código ou URL.", 
+            "parameters": { "type": "object", "properties": { "termo_de_busca": { "type": "string" } }, "required": ["termo_de_busca"] } 
+        },
+        { 
+            "name": "buscar_imoveis_filtros", 
+            "description": "Use para listar opções quando o cliente pedir sugestões com filtros como bairro, quartos, vagas ou preço (ex: 'outras opções de 3 quartos em Icaraí').", 
+            "parameters": { 
+                "type": "object", 
+                "properties": { 
+                    "bairro": { "type": "string" }, 
+                    "quartos": { "type": "number" }, 
+                    "precoMax": { "type": "number" } 
+                } 
+            } 
+        },
+        { 
+            "name": "qualificar_lead", 
+            "description": "Chame ao perceber interesse claro em visita ou falar com corretor. Sempre extraia o nome do cliente da conversa.", 
+            "parameters": { "type": "object", "properties": { "interesse": { "type": "string" }, "nome": { "type": "string" } }, "required": ["interesse", "nome"] } 
+        }
+    ]}]
+};
         const response = await axios.post(url, payloadInicial);
         const contentResponse = response.data?.candidates?.[0]?.content;
         const functionCall = contentResponse?.parts?.[0]?.functionCall;
@@ -267,6 +279,29 @@ const payloadInicial = {
                     salvarHistorico(sender, conversa); 
                 }
             } // Fechamento do else if buscar_imovel
+
+            else if (functionCall.name === "buscar_imoveis_filtros") {
+            const { bairro, quartos, precoMax } = functionCall.args;
+            
+            const resultados = cacheImoveis.filter(i => {
+                const b = i.Location?.Neighborhood?.toLowerCase() || "";
+                const q = parseInt(i.Details?.Bedrooms) || 0;
+                const p = parseFloat(i.Details?.ListPrice) || 0;
+                
+                return (!bairro || b.includes(bairro.toLowerCase())) &&
+                       (!quartos || q >= quartos) &&
+                       (!precoMax || p <= precoMax);
+            }).slice(0, 3); 
+
+            let resposta = resultados.length > 0 
+                ? "Encontrei estas opções para você:\n\n" + resultados.map(i => `📍 ${i.Location.Neighborhood} - ${i.Details.Bedrooms} quartos - R$ ${i.Details.ListPrice}\n🔗 ${i.DetailViewUrl}`).join('\n\n')
+                : "Não encontrei outras opções com essas características específicas agora. Gostaria que eu passasse seu contato e suas preferências para o corretor responsável te ajudar?";
+
+            await enviarMensagem(sender, resposta);
+            conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
+            salvarHistorico(sender, conversa);
+        }
+        } // Fechamento do else if buscar_imovel_filtros
 
         } else if (contentResponse?.parts?.[0]?.text) {
             conversa.push({ "role": "model", "parts": [{ "text": contentResponse.parts[0].text }] });
