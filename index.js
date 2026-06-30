@@ -207,19 +207,22 @@ app.post('/webhook', async (req, res) => {
             "description": "Consulta dados técnicos (rua, suites, vagas, features) pelo código ou URL.", 
             "parameters": { "type": "object", "properties": { "termo_de_busca": { "type": "string" } }, "required": ["termo_de_busca"] } 
         },
-        { 
-            "name": "buscar_imoveis_filtros", 
-            "description": "Use para listar opções quando o cliente pedir sugestões com filtros como bairro, quartos, vagas ou preço.", 
-            "parameters": { 
-                "type": "object", 
-                "properties": { 
-                    "bairro": { "type": "string" }, 
-                    "quartos": { "type": "number" }, 
-                    "precoMax": { "type": "number" },
-                    "tipo": { "type": "string", "description": "Tipo do imóvel, ex: 'cobertura', 'apartamento', 'casa'" }
-                } 
-            } 
-        },
+        {
+  "name": "buscar_imoveis_filtros",
+  "description": "Busca imóveis com filtros detalhados de intenção e características.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "intencao": { "type": "string", "description": "compra ou aluguel" },
+      "tipo": { "type": "string", "description": "apartamento, cobertura, casa, etc." },
+      "bairro": { "type": "string" },
+      "quartos": { "type": "number" },
+      "vaga": { "type": "boolean", "description": "se possui vaga de garagem" },
+      "precoMax": { "type": "number" },
+      "extras": { "type": "array", "items": { "type": "string" }, "description": "outras características como 'varanda', 'suíte'" }
+    }
+  }
+},
         { 
             "name": "qualificar_lead", 
             "description": "Chame ao perceber interesse claro em visita ou falar com corretor. Sempre extraia o nome do cliente da conversa.", 
@@ -307,40 +310,42 @@ else if (functionCall.name === "processar_captacao") {
                 }
             } // Fechamento do else if buscar_imovel
 
-            else if (functionCall.name === "buscar_imoveis_filtros") {
-    const { bairro, quartos, precoMax, tipo } = functionCall.args;
+       else if (functionCall.name === "buscar_imoveis_filtros") {
+    const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
     
     const resultados = cacheImoveis.filter(i => {
-        // Função auxiliar para extrair texto de campos que podem ser objetos ou strings
         const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || "") : String(campo)).toLowerCase();
         
-        const b = v(i.Location?.Neighborhood);
-        const q = parseInt(i.Details?.Bedrooms) || 0;
-        const p = parseFloat(i.Details?.ListPrice?._ || i.Details?.ListPrice) || 0;
-        const t = v(i.PropertyType);
+        // Filtros básicos
+        const matchBairro = !bairro || v(i.Location?.Neighborhood).includes(bairro.toLowerCase());
+        const matchQuartos = !quartos || parseInt(i.Details?.Bedrooms) >= quartos;
+        const matchPreco = !precoMax || parseFloat(i.Details?.ListPrice?._ || i.Details?.ListPrice) <= precoMax;
+        const matchTipo = !tipo || v(i.PropertyType).includes(tipo.toLowerCase());
+        const matchIntencao = !intencao || v(i.TransactionType).includes(intencao.toLowerCase());
+        const matchVaga = (vaga === undefined) || (!!i.Details?.ParkingSpaces === vaga);
         
-        const matchBairro = !bairro || b.includes(bairro.toLowerCase());
-        const matchQuartos = !quartos || q >= quartos;
-        const matchPreco = !precoMax || p <= precoMax;
-        const matchTipo = !tipo || t.includes(tipo.toLowerCase());
+        // Filtro de extras (verificar se existem no campo de descrição ou comodidades do imóvel)
+        const matchExtras = !extras || extras.every(extra => 
+            v(i.Description).includes(extra.toLowerCase()) || 
+            v(i.Amenities).includes(extra.toLowerCase())
+        );
         
-        return matchBairro && matchQuartos && matchPreco && matchTipo;
-    }).slice(0, 3); 
+        return matchBairro && matchQuartos && matchPreco && matchTipo && matchIntencao && matchVaga && matchExtras;
+    }).slice(0, 3);
 
     if (resultados.length > 0) {
-        await enviarMensagem(sender, "Encontrei estas opções para você:");
+        await enviarMensagem(sender, "Aqui estão as 3 melhores opções que encontrei para você:");
         for (const i of resultados) {
             const preco = i.Details?.ListPrice?._ || i.Details?.ListPrice || "Consultar";
-            const resumo = `📍 ${i.Location?.Neighborhood || "Localização"} - ${i.Details?.Bedrooms || 0} quartos\n💰 R$ ${preco}\n🔗 ${i.DetailViewUrl || ""}`;
+            const resumo = `📍 ${i.Location?.Neighborhood || "Localização"}\n${i.Details?.Bedrooms || 0} quartos | ${i.PropertyType || "Imóvel"}\n💰 R$ ${preco}\n🔗 ${i.DetailViewUrl || ""}`;
+            
             await enviarMensagem(sender, resumo);
-            await new Promise(resolve => setTimeout(resolve, 800));
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Delay para simular digitação
         }
-        conversa.push({ "role": "model", "parts": [{ "text": "Enviei as opções." }] });
     } else {
-        const msg = "Não encontrei imóveis com essas características agora. Gostaria que eu passasse seu contato para o corretor responsável?";
-        await enviarMensagem(sender, msg);
-        conversa.push({ "role": "model", "parts": [{ "text": msg }] });
+        await enviarMensagem(sender, "Não encontrei imóveis com exatamente essas características agora. Gostaria que eu passasse seu contato para o nosso corretor buscar algo personalizado?");
     }
+}
     salvarHistorico(sender, conversa);
 }
       
