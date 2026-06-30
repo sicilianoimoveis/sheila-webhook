@@ -215,7 +215,6 @@ app.post('/webhook', async (req, res) => {
         atualizarIndiceLeads(sender, null, null, false, imovel.ListingID);
     }
                 const v = (campo) => (campo && typeof campo === 'object' ? campo._ : campo) || 'Não informado';
-                const v = (campo) => (campo && typeof campo === 'object' ? campo._ : campo) || 'Não informado';
                 const feat = imovel?.Features?.Feature ? (Array.isArray(imovel.Features.Feature) ? imovel.Features.Feature.join(', ') : imovel.Features.Feature) : "Nenhuma característica extra informada.";
                 const enderecoReal = imovel && imovel.Location ? (Array.isArray(imovel.Location) ? imovel.Location[0].Address : imovel.Location.Address) : "Não informado";
                 let dados = imovel ? `ID: ${imovel.ListingID}, Preço: R$ ${v(imovel.Details.ListPrice)}, Rua: ${v(enderecoReal)}, Suítes: ${v(imovel.Details.Suites)}, Vagas: ${v(imovel.Details.Garage)}, Bairro: ${v(imovel.Location.Neighborhood)}, Features: ${feat}, Descrição: ${v(imovel.Details.Description)}` : "Imóvel não localizado.";
