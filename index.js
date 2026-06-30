@@ -252,8 +252,7 @@ app.post('/webhook', async (req, res) => {
     // Segue com a resposta padrão da Sheila pedindo o endereço
     const resposta = "Entendido! Para que nossa equipe de captação avalie seu imóvel, qual o endereço completo dele?";
     await enviarMensagem(sender, resposta);
-    conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
-    salvarHistorico(sender, conversa);
+        salvarHistorico(sender, conversa);
 }
 else if (functionCall.name === "processar_captacao") {
             const { endereco } = functionCall.args;
@@ -266,7 +265,7 @@ else if (functionCall.name === "processar_captacao") {
             // 2. Resposta de confirmação
             const resposta = "Perfeito, anotei o endereço! Vou passar essas informações para nossa equipe de captação entrar em contato com você em breve.";
             await enviarMensagem(sender, resposta);
-            conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
+            
             salvarHistorico(sender, conversa);
         }      
        else  if (functionCall.name === "qualificar_lead") {
@@ -286,7 +285,7 @@ else if (functionCall.name === "processar_captacao") {
 
                 atualizarIndiceLeads(sender, nomeDoCliente);
                 const msg = "Perfeito, acabei de encaminhar seu interesse para nossa equipe de corretores!";
-                conversa.push({ "role": "model", "parts": [{ "text": msg }] });
+                
                 await enviarMensagem(sender, msg);
                 salvarHistorico(sender, conversa); 
             
@@ -304,7 +303,7 @@ else if (functionCall.name === "processar_captacao") {
                 const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
                 const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
                 if (texto) { 
-                    conversa.push({ "role": "model", "parts": [{ "text": texto }] }); 
+                    
                     await enviarMensagem(sender, texto); 
                     salvarHistorico(sender, conversa); 
                 }
