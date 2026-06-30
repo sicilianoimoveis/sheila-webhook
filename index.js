@@ -350,7 +350,7 @@ else if (functionCall.name === "processar_captacao") {
 }
       
 
-        } else if (contentResponse?.parts?.[0]?.text) {
+    else if (contentResponse?.parts?.[0]?.text) {
             conversa.push({ "role": "model", "parts": [{ "text": contentResponse.parts[0].text }] });
             await enviarMensagem(sender, contentResponse.parts[0].text);
             salvarHistorico(sender, conversa); 
