@@ -153,14 +153,25 @@ app.get('/leads', (req, res) => {
 });
 
 app.post('/webhook', async (req, res) => {
-    if (process.env.SHEILA_PAUSADA === 'true') {
-        console.log("LOG_DEBUG: Sheila pausada pela variável de ambiente.");
-        return res.sendStatus(200); 
-    }
+    // ... (código de verificação inicial)
     const msgData = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
     if (!msgData) return res.sendStatus(200);
+    
     const sender = msgData.from;
-    atualizarIndiceLeads(sender, null, "WhatsApp");
+    
+    // --- LÓGICA DE DEFINIÇÃO DO NOME ---
+    // Pega o nome da API do WhatsApp (Meta)
+    const nomeMeta = req.body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile?.name;
+    // Pega o nome que já temos no nosso arquivo de índice
+    const nomeAtual = leadsIndex[sender]?.nome;
+
+    // Prioridade: 1º Nome que já temos, 2º Nome da Meta, 3º "Cliente"
+    const nomeParaSalvar = (nomeAtual && nomeAtual !== "Lead Sem Nome") ? nomeAtual : (nomeMeta || "Cliente");
+
+    // Atualiza o índice com o nome decidido
+    atualizarIndiceLeads(sender, nomeParaSalvar, "WhatsApp");
+    // --- FIM DA LÓGICA ---
+
     const textoCliente = msgData.text?.body;
     const conversa = obterHistorico(sender);
     const referral = msgData?.referral?.source_url;
