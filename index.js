@@ -88,20 +88,19 @@ function obterHistorico(sender) {
 }
 
 function salvarHistorico(sender, conversa) {
-    // Filtra mensagens técnicas antes de gravar
-    const conversaLimpa = conversa.filter(m => {
-        const txt = m.parts && m.parts[0] ? m.parts[0].text : (m.text || "");
-        return !txt.includes("CONSULTA DE IMÓVEL") && 
-               !txt.includes("Apresente este imóvel") &&
-               !txt.includes("O nome deste cliente é");
-    }).map(m => ({
+    // Limpamos apenas a estrutura técnica desnecessária, mas mantemos TODAS as mensagens
+    const conversaLimpa = conversa.map(m => ({
         role: m.role,
         text: m.parts && m.parts[0] ? m.parts[0].text : (m.text || "")
     }));
 
     historicos[sender] = conversaLimpa;
-    fs.promises.writeFile(FILE_PATH, JSON.stringify(historicos, null, 0)).catch(console.error);
+
+    // Grava tudo no disco
+    fs.promises.writeFile(FILE_PATH, JSON.stringify(historicos, null, 0))
+        .catch(err => console.error("Erro ao salvar histórico:", err));
 }
+
 function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId = null) {
     if (!leadsIndex[sender]) leadsIndex[sender] = { imoveisInteresse: [] };
     if (!leadsIndex[sender].imoveisInteresse) leadsIndex[sender].imoveisInteresse = [];
@@ -122,17 +121,6 @@ function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId 
 }
 
 // --- ROTAS ---
-app.get('/limpar-historico/:sender', (req, res) => {
-    const { sender } = req.params;
-    if (historicos[sender]) {
-        delete historicos[sender];
-        fs.promises.writeFile(FILE_PATH, JSON.stringify(historicos, null, 0));
-        res.send(`Histórico de ${sender} limpo com sucesso.`);
-    } else {
-        res.send("Histórico não encontrado.");
-    }
-});
-
 app.get('/chat/:sender', (req, res) => {
     const { sender } = req.params;
     const { token } = req.query;
