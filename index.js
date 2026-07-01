@@ -374,7 +374,7 @@ else if (functionCall.name === "processar_captacao") {
     }
 }
         }
-   
+    }
     catch (error) { 
         console.error("Erro Webhook:", error.message); 
     }
