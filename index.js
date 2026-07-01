@@ -374,6 +374,7 @@ else if (functionCall.name === "processar_captacao") {
             await enviarMensagem(sender, contentResponse.parts[0].text);
             salvarHistorico(sender, conversa); 
         }
+        }
     catch (error) { 
         console.error("Erro Webhook:", error.message); 
     }
