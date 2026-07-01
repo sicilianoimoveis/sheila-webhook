@@ -408,17 +408,18 @@ else if (functionCall.name === "processar_captacao") {
     if (resultados.length > 0) {
         await enviarMensagem(sender, "Encontrei estas opções para você:");
         for (const i of resultados) {
-            const titulo = i.Title || "Imóvel disponível";
-            const descCompleta = i.Details?.Description || "";
-            const resumo = descCompleta.length > 200 ? descCompleta.substring(0, 197) + "..." : descCompleta;
-            const preco = i.Details?.ListPrice?._ || i.Details?.ListPrice || "Consultar";
-            const link = i.DetailViewUrl || "";
+    const titulo = i.Title || "Imóvel disponível";
+    const desc = i.Details?.Description || "Veja os detalhes no link abaixo.";
+    const preco = i.Details?.ListPrice?._ || i.Details?.ListPrice || "Consultar";
+    const link = i.DetailViewUrl || "";
 
-            const msgImovel = `*${titulo}*\n\n${resumo}\n\n💰 R$ ${preco}\n🔗 ${link}`;
-            
-            await enviarMensagem(sender, msgImovel);
-            await new Promise(resolve => setTimeout(resolve, 1000));
-        }
+    // Apenas passamos a informação limpa. 
+    // Removemos o limite de caracteres que cortava o texto.
+    const msgImovel = `*${titulo}*\n\n${desc}\n\n💰 R$ ${preco}\n🔗 ${link}`;
+    
+    await enviarMensagem(sender, msgImovel);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+}
         salvarHistorico(sender, conversa);
     } else {
         const msg = "Não encontrei imóveis com essas características agora. Gostaria que eu passasse seu contato para o nosso corretor buscar algo personalizado?";
