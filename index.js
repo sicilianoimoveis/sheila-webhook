@@ -234,7 +234,11 @@ app.post('/webhook', async (req, res) => {
         const contentResponse = response.data?.candidates?.[0]?.content;
         const functionCall = contentResponse?.parts?.[0]?.functionCall;
 
-        // ... (mantenha o código até a linha que identifica o functionCall)
+       if (functionCall) {
+            console.log("LOG_DEBUG: A Sheila decidiu chamar a função:", functionCall.name);
+            console.log("LOG_DEBUG: Argumentos definidos pela Sheila:", JSON.stringify(functionCall.args));
+            console.log("LOG_DEBUG: Quantidade total de imóveis no cache:", cacheImoveis?.length || 0);
+        }
 
         if (functionCall) {
     // 1. Lógica de Captacao (Nova)
