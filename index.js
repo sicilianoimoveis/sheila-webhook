@@ -373,6 +373,7 @@ else if (functionCall.name === "processar_captacao") {
         salvarHistorico(sender, conversa);
     }
 }
+        }
    
     catch (error) { 
         console.error("Erro Webhook:", error.message); 
