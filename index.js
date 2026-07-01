@@ -355,7 +355,9 @@ const mapaIntencao = {
     "aluguel": "forrent",
     "locacao": "forrent"
 };
+          console.log("LOG_DEBUG: Entrou na função buscar_imoveis_filtros");
 const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
+          
 const resultados = cacheImoveis.filter(i => {
     const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
     
@@ -392,9 +394,7 @@ const resultados = cacheImoveis.filter(i => {
 }).slice(0, 3);
 
 console.log("LOG_DEBUG: Imóveis encontrados após filtro:", resultados.length);
-    // 3. Log de diagnóstico (Isso vai te mostrar exatamente quantos ele achou)
-    console.log("LOG_DEBUG: Imóveis encontrados após filtro:", resultados.length);
-
+   
    if (resultados.length > 0) {
         await enviarMensagem(sender, "Encontrei estas opções para você:");
         for (const i of resultados) {
