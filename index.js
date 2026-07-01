@@ -355,7 +355,7 @@ const mapaIntencao = {
     "aluguel": "forrent",
     "locacao": "forrent"
 };
-
+const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
 const resultados = cacheImoveis.filter(i => {
     const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
     
