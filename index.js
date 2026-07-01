@@ -406,55 +406,51 @@ else if (functionCall.name === "processar_captacao") {
     console.log("LOG_DEBUG: Imóveis encontrados após filtro:", resultados.length);
 
    if (resultados.length > 0) {
-        // Envia uma mensagem inicial de apresentação
         await enviarMensagem(sender, "Encontrei estas opções para você:");
         
-       for (const i of resultados) {
-    const dados = `Título: ${i.Title}, Descrição: ${i.Details?.Description}, Preço: ${i.Details?.ListPrice?._ || i.Details?.ListPrice}, Link: ${i.DetailViewUrl}`;
-    
-    // 1. Não faça o push no histórico global aqui para não "sujar" o contexto.
-    // 2. Vamos criar um payload local que pega o histórico atual + a instrução do imóvel.
-    const payloadLocal = [...conversa, { 
-        "role": "user", 
-        "parts": [{ "text": `Apresente este imóvel: ${dados}. Use a DIRETRIZ DE APRESENTAÇÃO.` }] 
-    }];
+        for (const i of resultados) {
+            const dados = `Título: ${i.Title}, Descrição: ${i.Details?.Description}, Preço: ${i.Details?.ListPrice?._ || i.Details?.ListPrice}, Link: ${i.DetailViewUrl}`;
+            const payloadLocal = [...conversa, { 
+                "role": "user", 
+                "parts": [{ "text": `Apresente este imóvel: ${dados}. Use a DIRETRIZ DE APRESENTAÇÃO.` }] 
+            }];
 
-    try {
-        const respFinal = await axios.post(url, { 
-            "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, 
-            "contents": payloadLocal // Enviamos o histórico completo + a instrução atual
-        });
-        
-        const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (texto) {
-            await enviarMensagem(sender, texto);
-            // 3. Após a IA responder, agora sim, salvamos o que ela disse no histórico real
-            conversa.push({ "role": "model", "parts": [{ "text": texto }] });
-        } else {
-            await enviarMensagem(sender, `*${i.Title}*\n💰 R$ ${i.Details?.ListPrice?._ || i.Details?.ListPrice}\n🔗 ${i.DetailViewUrl}`);
+            try {
+                const respFinal = await axios.post(url, { 
+                    "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, 
+                    "contents": payloadLocal 
+                });
+                const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (texto) {
+                    await enviarMensagem(sender, texto);
+                    conversa.push({ "role": "model", "parts": [{ "text": texto }] });
+                } else {
+                    await enviarMensagem(sender, `*${i.Title}*\n💰 R$ ${i.Details?.ListPrice?._ || i.Details?.ListPrice}\n🔗 ${i.DetailViewUrl}`);
+                }
+            } catch (e) {
+                console.error("Erro na chamada da IA:", e);
+                await enviarMensagem(sender, `*${i.Title}*\n💰 R$ ${i.Details?.ListPrice?._ || i.Details?.ListPrice}\n🔗 ${i.DetailViewUrl}`);
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000));
         }
-    } catch (e) {
-        console.error("Erro na chamada da IA:", e);
-        await enviarMensagem(sender, `*${i.Title}*\n💰 R$ ${i.Details?.ListPrice?._ || i.Details?.ListPrice}\n🔗 ${i.DetailViewUrl}`);
-    }
-    
-    await new Promise(resolve => setTimeout(resolve, 1000));
-}
         salvarHistorico(sender, conversa);
     } else {
         const msg = "Não encontrei imóveis com essas características agora. Gostaria que eu passasse seu contato para o nosso corretor buscar algo personalizado?";
         await enviarMensagem(sender, msg);
         salvarHistorico(sender, conversa);
     }
+} // FECHA O "else if (functionCall.name === "buscar_imoveis_filtros")"
+
+// NÃO COLOQUE MAIS NENHUMA CHAVE AQUI
+
+} // FECHA O "if (functionCall)" que iniciou lá no começo
+} // FECHA O "try" principal
+catch (error) { 
+    console.error("Erro Webhook:", error.message); 
 }
-        }
-    }
-    catch (error) { 
-        console.error("Erro Webhook:", error.message); 
-    }
-    res.sendStatus(200);
+res.sendStatus(200);
 });
+
 app.post('/webhook-lead', async (req, res) => {
     const { name, phone, building_id, origin_desc } = req.body;
     const celular = phone ? phone.replace(/\D/g, '') : null;
