@@ -366,13 +366,14 @@ else if (functionCall.name === "processar_captacao") {
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
         salvarHistorico(sender, conversa);
-    } else {
+    } 
+    else {
         const msg = "Não encontrei imóveis com essas características agora. Gostaria que eu passasse seu contato para o nosso corretor buscar algo personalizado?";
         await enviarMensagem(sender, msg);
         salvarHistorico(sender, conversa);
     }
 }
-    }
+   
     catch (error) { 
         console.error("Erro Webhook:", error.message); 
     }
