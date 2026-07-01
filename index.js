@@ -88,19 +88,20 @@ function obterHistorico(sender) {
 }
 
 function salvarHistorico(sender, conversa) {
-    // Limpamos apenas a estrutura técnica desnecessária, mas mantemos TODAS as mensagens
-    const conversaLimpa = conversa.map(m => ({
+    // Filtra mensagens técnicas antes de gravar
+    const conversaLimpa = conversa.filter(m => {
+        const txt = m.parts && m.parts[0] ? m.parts[0].text : (m.text || "");
+        return !txt.includes("CONSULTA DE IMÓVEL") && 
+               !txt.includes("Apresente este imóvel") &&
+               !txt.includes("O nome deste cliente é");
+    }).map(m => ({
         role: m.role,
         text: m.parts && m.parts[0] ? m.parts[0].text : (m.text || "")
     }));
 
     historicos[sender] = conversaLimpa;
-
-    // Grava tudo no disco
-    fs.promises.writeFile(FILE_PATH, JSON.stringify(historicos, null, 0))
-        .catch(err => console.error("Erro ao salvar histórico:", err));
+    fs.promises.writeFile(FILE_PATH, JSON.stringify(historicos, null, 0)).catch(console.error);
 }
-
 function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId = null) {
     if (!leadsIndex[sender]) leadsIndex[sender] = { imoveisInteresse: [] };
     if (!leadsIndex[sender].imoveisInteresse) leadsIndex[sender].imoveisInteresse = [];
