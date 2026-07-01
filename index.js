@@ -360,7 +360,7 @@ const resultados = cacheImoveis.filter(i => {
     const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
     
     // Extração e Normalização
-    const bairro = normalize(v(i.Location?.Neighborhood));
+    const bairroImovel = normalize(v(i.Location?.Neighborhood));
     const tipoImovelXML = normalize(v(i.Details?.PropertyType));
     const transacaoXML = normalize(v(i.TransactionType));
     const descricao = normalize(v(i.Details?.Description));
@@ -372,7 +372,7 @@ const resultados = cacheImoveis.filter(i => {
     const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
 
     // Filtros
-    const matchBairro = !bairro || bairro.includes(normalize(bairro)); // Ajuste: usa o nome do parâmetro 'bairro'
+    const matchBairro = !bairro || bairroImovel.includes(normalize(bairro)); // Ajuste: usa o nome do parâmetro 'bairro'
     const matchIntencao = !intencao || transacaoXML.includes(nIntencaoBusca);
     const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
     const matchQuartos = !quartos || (qteQuartos >= quartos);
