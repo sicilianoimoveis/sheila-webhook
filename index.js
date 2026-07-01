@@ -121,6 +121,17 @@ function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId 
 }
 
 // --- ROTAS ---
+app.get('/limpar-historico/:sender', (req, res) => {
+    const { sender } = req.params;
+    if (historicos[sender]) {
+        delete historicos[sender];
+        fs.promises.writeFile(FILE_PATH, JSON.stringify(historicos, null, 0));
+        res.send(`Histórico de ${sender} limpo com sucesso.`);
+    } else {
+        res.send("Histórico não encontrado.");
+    }
+});
+
 app.get('/chat/:sender', (req, res) => {
     const { sender } = req.params;
     const { token } = req.query;
