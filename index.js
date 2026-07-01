@@ -331,29 +331,42 @@ else if (functionCall.name === "processar_captacao") {
 
     // 2. Executa o filtro
     const resultados = cacheImoveis.filter(i => {
-        const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || "") : String(campo));
+        console.log("LOG_DEBUG: Exemplo de estrutura de um imóvel:", JSON.stringify(cacheImoveis[0], null, 2).substring(0, 500));
+       const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || "") : String(campo));
         
+        // Dados do imóvel normalizados
         const b = normalize(v(i.Location?.Neighborhood));
         const t = normalize(v(i.PropertyType) + " " + v(i.Description));
         const it = normalize(v(i.TransactionType));
         
-        // Match dos filtros com tolerância
+        // Filtros (com tolerância para dados ausentes)
         const matchBairro = !bairro || b.includes(nBairro);
-        const matchIntencao = !intencao || it.includes(nIntencao) || (nIntencao === "compra" && it.includes("sale"));
+        
+        // Ajuste de Intenção: aceita correspondência exata ou termos equivalentes
+        const matchIntencao = !intencao || 
+            it.includes(nIntencao) || 
+            (nIntencao === "compra" && it.includes("sale")) || 
+            (nIntencao === "aluguel" && it.includes("rent"));
+
         const matchTipo = !tipo || t.includes(nTipo) || (nTipo.includes("cobertura") && t.includes("penthouse"));
         
         const matchQuartos = !quartos || (parseInt(i.Details?.Bedrooms) >= quartos);
+        
         const matchPreco = !precoMax || (parseFloat(i.Details?.ListPrice?._ || i.Details?.ListPrice) <= precoMax);
+        
+        // Vaga: Só filtra se o usuário solicitar explicitamente (true/false)
         const matchVaga = (vaga === undefined) || (!!i.Details?.ParkingSpaces === vaga);
         
-        const matchExtras = !extras || extras.every(extra => 
-            normalize(v(i.Description)).includes(normalize(extra)) || 
-            normalize(v(i.Amenities)).includes(normalize(extra))
-        );
+        // Extras: Só filtra se o usuário pedir e o campo existir no imóvel
+        const matchExtras = !extras || extras.every(extra => {
+            const desc = normalize(v(i.Description));
+            const amen = normalize(v(i.Amenities));
+            const nExtra = normalize(extra);
+            return desc.includes(nExtra) || amen.includes(nExtra);
+        });
         
         return matchBairro && matchQuartos && matchPreco && matchTipo && matchIntencao && matchVaga && matchExtras;
     }).slice(0, 3);
-
     // 3. Log de diagnóstico (Isso vai te mostrar exatamente quantos ele achou)
     console.log("LOG_DEBUG: Imóveis encontrados após filtro:", resultados.length);
 
