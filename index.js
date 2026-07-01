@@ -317,38 +317,35 @@ else if (functionCall.name === "processar_captacao") {
     console.log("Filtros recebidos:", functionCall.args);
     const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
 
-    // Função de normalização robusta
+    // 1. Função de normalização para ignorar acentos e maiúsculas
     const normalize = (str) => {
         if (!str) return "";
         return String(str).toLowerCase()
-            .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove acentos
-            .replace(/[-\s]/g, ""); // Remove espaços e hífens
+            .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+            .replace(/[-\s]/g, "");
     };
 
     const nBairro = normalize(bairro);
     const nTipo = normalize(tipo);
     const nIntencao = normalize(intencao);
 
+    // 2. Executa o filtro
     const resultados = cacheImoveis.filter(i => {
         const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || "") : String(campo));
         
-        // Normalização dos campos do imóvel
         const b = normalize(v(i.Location?.Neighborhood));
         const t = normalize(v(i.PropertyType) + " " + v(i.Description));
         const it = normalize(v(i.TransactionType));
         
-        // Filtros (com tolerância)
+        // Match dos filtros com tolerância
         const matchBairro = !bairro || b.includes(nBairro);
-        const matchQuartos = !quartos || parseInt(i.Details?.Bedrooms) >= quartos;
-        const matchPreco = !precoMax || parseFloat(i.Details?.ListPrice?._ || i.Details?.ListPrice) <= precoMax;
-        
-        // Tipo aceita "Penthouse" se o cliente buscar "cobertura"
+        const matchIntencao = !intencao || it.includes(nIntencao) || (nIntencao === "compra" && it.includes("sale"));
         const matchTipo = !tipo || t.includes(nTipo) || (nTipo.includes("cobertura") && t.includes("penthouse"));
         
-        const matchIntencao = !intencao || it.includes(nIntencao);
+        const matchQuartos = !quartos || (parseInt(i.Details?.Bedrooms) >= quartos);
+        const matchPreco = !precoMax || (parseFloat(i.Details?.ListPrice?._ || i.Details?.ListPrice) <= precoMax);
         const matchVaga = (vaga === undefined) || (!!i.Details?.ParkingSpaces === vaga);
         
-        // Filtro de extras na Descrição e Amenities
         const matchExtras = !extras || extras.every(extra => 
             normalize(v(i.Description)).includes(normalize(extra)) || 
             normalize(v(i.Amenities)).includes(normalize(extra))
@@ -356,6 +353,9 @@ else if (functionCall.name === "processar_captacao") {
         
         return matchBairro && matchQuartos && matchPreco && matchTipo && matchIntencao && matchVaga && matchExtras;
     }).slice(0, 3);
+
+    // 3. Log de diagnóstico (Isso vai te mostrar exatamente quantos ele achou)
+    console.log("LOG_DEBUG: Imóveis encontrados após filtro:", resultados.length);
 
     if (resultados.length > 0) {
         await enviarMensagem(sender, "Encontrei estas opções para você:");
@@ -372,13 +372,6 @@ else if (functionCall.name === "processar_captacao") {
         salvarHistorico(sender, conversa);
     }
 }
-
-    else if (contentResponse?.parts?.[0]?.text) {
-            conversa.push({ "role": "model", "parts": [{ "text": contentResponse.parts[0].text }] });
-            await enviarMensagem(sender, contentResponse.parts[0].text);
-            salvarHistorico(sender, conversa); 
-        }
-        }
     }
     catch (error) { 
         console.error("Erro Webhook:", error.message); 
