@@ -207,22 +207,33 @@ app.post('/webhook', async (req, res) => {
             "description": "Consulta dados técnicos (rua, suites, vagas, features) pelo código ou URL.", 
             "parameters": { "type": "object", "properties": { "termo_de_busca": { "type": "string" } }, "required": ["termo_de_busca"] } 
         },
-        {
-  "name": "buscar_imoveis_filtros",
-  "description": "Busca imóveis com filtros detalhados de intenção e características.",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "intencao": { "type": "string", "description": "compra ou aluguel" },
-      "tipo": { "type": "string", "description": "apartamento, cobertura, casa, etc." },
-      "bairro": { "type": "string" },
-      "quartos": { "type": "number" },
-      "vaga": { "type": "boolean", "description": "se possui vaga de garagem" },
-      "precoMax": { "type": "number" },
-      "extras": { "type": "array", "items": { "type": "string" }, "description": "outras características como 'varanda', 'suíte'" }
+     {
+    "name": "buscar_imoveis_filtros",
+    "description": "Busca imóveis com filtros detalhados de intenção, bairro, tipo, orçamento e características.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "intencao": { 
+                "type": "string", 
+                "description": "A intenção do cliente: use exatamente 'compra' ou 'aluguel'." 
+            },
+            "tipo": { 
+                "type": "string", 
+                "description": "O tipo do imóvel: 'apartamento', 'cobertura', 'casa', 'studio', 'sala comercial', 'casa em condominio', 'loja', 'imovel comercial' ou 'predio comercial'." 
+            },
+            "bairro": { "type": "string", "description": "O bairro de preferência do cliente." },
+            "quartos": { "type": "number", "description": "Número mínimo de quartos desejado." },
+            "vaga": { "type": "boolean", "description": "Se o imóvel precisa ter vaga de garagem (true para sim, false para não)." },
+            "precoMax": { "type": "number", "description": "Valor máximo que o cliente pretende pagar." },
+            "extras": { 
+                "type": "array", 
+                "items": { "type": "string" }, 
+                "description": "Lista de características extras (ex: 'varanda', 'suíte', 'lazer completo')." 
+            }
+        },
+        "required": ["intencao"]
     }
-  }
-},
+}
         { 
             "name": "qualificar_lead", 
             "description": "Chame ao perceber interesse claro em visita ou falar com corretor. Sempre extraia o nome do cliente da conversa.", 
@@ -315,58 +326,71 @@ else if (functionCall.name === "processar_captacao") {
 
       else if (functionCall.name === "buscar_imoveis_filtros") {
     console.log("Filtros recebidos:", functionCall.args);
-    const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
+    
+// 1. Definição da função de normalização (essencial!)
+const normalize = (str) => {
+    if (!str) return "";
+    return String(str).toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[-\s]/g, "");
+};
 
-    // 1. Função de normalização para ignorar acentos e maiúsculas
-    const normalize = (str) => {
-        if (!str) return "";
-        return String(str).toLowerCase()
-            .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-            .replace(/[-\s]/g, "");
-    };
+// 2. Mapas de conversão
+const mapaTipos = {
+    "apartamento": "residential/apartment",
+    "cobertura": "residential/penthouse",
+    "casa": "residential/home",
+    "studio": "residential/flat",
+    "sala comercial": "commercial/office",
+    "casa em condominio": "residential/condo",
+    "loja": "commercial/loja",
+    "imovel comercial": "commercial/business",
+    "predio comercial": "commercial/business"
+};
 
-    const nBairro = normalize(bairro);
-    const nTipo = normalize(tipo);
-    const nIntencao = normalize(intencao);
+const mapaIntencao = {
+    "compra": "forsale",
+    "venda": "forsale",
+    "aluguel": "forrent",
+    "locacao": "forrent"
+};
 
-    // 2. Executa o filtro
-    const resultados = cacheImoveis.filter(i => {
-        console.log("LOG_DEBUG: Exemplo de estrutura de um imóvel:", JSON.stringify(cacheImoveis[0], null, 2).substring(0, 500));
-       const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || "") : String(campo));
-        
-        // Dados do imóvel normalizados
-        const b = normalize(v(i.Location?.Neighborhood));
-        const t = normalize(v(i.PropertyType) + " " + v(i.Description));
-        const it = normalize(v(i.TransactionType));
-        
-        // Filtros (com tolerância para dados ausentes)
-        const matchBairro = !bairro || b.includes(nBairro);
-        
-        // Ajuste de Intenção: aceita correspondência exata ou termos equivalentes
-        const matchIntencao = !intencao || 
-            it.includes(nIntencao) || 
-            (nIntencao === "compra" && it.includes("sale")) || 
-            (nIntencao === "aluguel" && it.includes("rent"));
+const resultados = cacheImoveis.filter(i => {
+    const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
+    
+    // Extração e Normalização
+    const bairro = normalize(v(i.Location?.Neighborhood));
+    const tipoImovelXML = normalize(v(i.Details?.PropertyType));
+    const transacaoXML = normalize(v(i.TransactionType));
+    const descricao = normalize(v(i.Details?.Description));
+    const precoImovel = parseFloat(v(i.Details?.ListPrice)) || 0;
+    const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
 
-        const matchTipo = !tipo || t.includes(nTipo) || (nTipo.includes("cobertura") && t.includes("penthouse"));
+    // Tradução das entradas
+    const nIntencaoBusca = mapaIntencao[normalize(intencao)] || normalize(intencao);
+    const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
+
+    // Filtros
+    const matchBairro = !bairro || bairro.includes(normalize(bairro)); // Ajuste: usa o nome do parâmetro 'bairro'
+    const matchIntencao = !intencao || transacaoXML.includes(nIntencaoBusca);
+    const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
+    const matchQuartos = !quartos || (qteQuartos >= quartos);
+    const matchPreco = !precoMax || (precoImovel <= precoMax);
+    const matchVaga = (vaga === undefined || vaga === null) || (!!i.Details?.ParkingSpaces === vaga);
+
+    // Extras
+    const features = Array.isArray(i.Details?.Features?.Feature) 
+        ? i.Details.Features.Feature.map(f => normalize(f)).join(' ') 
+        : normalize(v(i.Details?.Features?.Feature));
         
-        const matchQuartos = !quartos || (parseInt(i.Details?.Bedrooms) >= quartos);
-        
-        const matchPreco = !precoMax || (parseFloat(i.Details?.ListPrice?._ || i.Details?.ListPrice) <= precoMax);
-        
-        // Vaga: Só filtra se o usuário solicitar explicitamente (true/false)
-        const matchVaga = (vaga === undefined) || (!!i.Details?.ParkingSpaces === vaga);
-        
-        // Extras: Só filtra se o usuário pedir e o campo existir no imóvel
-        const matchExtras = !extras || extras.every(extra => {
-            const desc = normalize(v(i.Description));
-            const amen = normalize(v(i.Amenities));
-            const nExtra = normalize(extra);
-            return desc.includes(nExtra) || amen.includes(nExtra);
-        });
-        
-        return matchBairro && matchQuartos && matchPreco && matchTipo && matchIntencao && matchVaga && matchExtras;
-    }).slice(0, 3);
+    const matchExtras = !extras || extras.every(extra => 
+        descricao.includes(normalize(extra)) || features.includes(normalize(extra))
+    );
+    
+    return matchBairro && matchIntencao && matchTipo && matchQuartos && matchPreco && matchVaga && matchExtras;
+}).slice(0, 3);
+
+console.log("LOG_DEBUG: Imóveis encontrados após filtro:", resultados.length);
     // 3. Log de diagnóstico (Isso vai te mostrar exatamente quantos ele achou)
     console.log("LOG_DEBUG: Imóveis encontrados após filtro:", resultados.length);
 
