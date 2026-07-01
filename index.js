@@ -309,46 +309,65 @@ else if (functionCall.name === "processar_captacao") {
                 }
             } // Fechamento do else if buscar_imovel
 
-       else if (functionCall.name === "buscar_imoveis_filtros") {
+      else if (functionCall.name === "buscar_imoveis_filtros") {
     console.log("Filtros recebidos:", functionCall.args);
-           const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
-    
+    const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
+
+    // Função de normalização robusta
+    const normalize = (str) => {
+        if (!str) return "";
+        return String(str).toLowerCase()
+            .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove acentos
+            .replace(/[-\s]/g, ""); // Remove espaços e hífens
+    };
+
+    const nBairro = normalize(bairro);
+    const nTipo = normalize(tipo);
+    const nIntencao = normalize(intencao);
+
     const resultados = cacheImoveis.filter(i => {
-        const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || "") : String(campo)).toLowerCase();
+        const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || "") : String(campo));
         
-        // Filtros básicos
-        const matchBairro = !bairro || v(i.Location?.Neighborhood).includes(bairro.toLowerCase());
+        // Normalização dos campos do imóvel
+        const b = normalize(v(i.Location?.Neighborhood));
+        const t = normalize(v(i.PropertyType) + " " + v(i.Description));
+        const it = normalize(v(i.TransactionType));
+        
+        // Filtros (com tolerância)
+        const matchBairro = !bairro || b.includes(nBairro);
         const matchQuartos = !quartos || parseInt(i.Details?.Bedrooms) >= quartos;
         const matchPreco = !precoMax || parseFloat(i.Details?.ListPrice?._ || i.Details?.ListPrice) <= precoMax;
-        const matchTipo = !tipo || v(i.PropertyType).includes(tipo.toLowerCase());
-        const matchIntencao = !intencao || v(i.TransactionType).includes(intencao.toLowerCase());
+        
+        // Tipo aceita "Penthouse" se o cliente buscar "cobertura"
+        const matchTipo = !tipo || t.includes(nTipo) || (nTipo.includes("cobertura") && t.includes("penthouse"));
+        
+        const matchIntencao = !intencao || it.includes(nIntencao);
         const matchVaga = (vaga === undefined) || (!!i.Details?.ParkingSpaces === vaga);
         
-        // Filtro de extras (verificar se existem no campo de descrição ou comodidades do imóvel)
+        // Filtro de extras na Descrição e Amenities
         const matchExtras = !extras || extras.every(extra => 
-            v(i.Description).includes(extra.toLowerCase()) || 
-            v(i.Amenities).includes(extra.toLowerCase())
+            normalize(v(i.Description)).includes(normalize(extra)) || 
+            normalize(v(i.Amenities)).includes(normalize(extra))
         );
         
         return matchBairro && matchQuartos && matchPreco && matchTipo && matchIntencao && matchVaga && matchExtras;
     }).slice(0, 3);
 
     if (resultados.length > 0) {
-        await enviarMensagem(sender, "Aqui estão as 3 melhores opções que encontrei para você:");
+        await enviarMensagem(sender, "Encontrei estas opções para você:");
         for (const i of resultados) {
             const preco = i.Details?.ListPrice?._ || i.Details?.ListPrice || "Consultar";
             const resumo = `📍 ${i.Location?.Neighborhood || "Localização"}\n${i.Details?.Bedrooms || 0} quartos | ${i.PropertyType || "Imóvel"}\n💰 R$ ${preco}\n🔗 ${i.DetailViewUrl || ""}`;
-            
             await enviarMensagem(sender, resumo);
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Delay para simular digitação
+            await new Promise(resolve => setTimeout(resolve, 1000));
         }
+        salvarHistorico(sender, conversa);
     } else {
-        await enviarMensagem(sender, "Não encontrei imóveis com exatamente essas características agora. Gostaria que eu passasse seu contato para o nosso corretor buscar algo personalizado?");
+        const msg = "Não encontrei imóveis com essas características agora. Gostaria que eu passasse seu contato para o nosso corretor buscar algo personalizado?";
+        await enviarMensagem(sender, msg);
+        salvarHistorico(sender, conversa);
     }
 }
-    salvarHistorico(sender, conversa);
-}
-      
 
     else if (contentResponse?.parts?.[0]?.text) {
             conversa.push({ "role": "model", "parts": [{ "text": contentResponse.parts[0].text }] });
