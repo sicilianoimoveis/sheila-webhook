@@ -409,23 +409,29 @@ else if (functionCall.name === "processar_captacao") {
         // Envia uma mensagem inicial de apresentação
         await enviarMensagem(sender, "Encontrei estas opções para você:");
         
-        for (const i of resultados) {
+       for (const i of resultados) {
     const dados = `Título: ${i.Title}, Descrição: ${i.Details?.Description}, Preço: ${i.Details?.ListPrice?._ || i.Details?.ListPrice}, Link: ${i.DetailViewUrl}`;
     
-    conversa.push({ "role": "user", "parts": [{ "text": `Apresente este imóvel seguindo a diretriz de apresentação: ${dados}` }] });
-    
+    // 1. Não faça o push no histórico global aqui para não "sujar" o contexto.
+    // 2. Vamos criar um payload local que pega o histórico atual + a instrução do imóvel.
+    const payloadLocal = [...conversa, { 
+        "role": "user", 
+        "parts": [{ "text": `Apresente este imóvel: ${dados}. Use a DIRETRIZ DE APRESENTAÇÃO.` }] 
+    }];
+
     try {
         const respFinal = await axios.post(url, { 
             "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, 
-            "contents": conversa 
+            "contents": payloadLocal // Enviamos o histórico completo + a instrução atual
         });
         
         const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
         if (texto) {
             await enviarMensagem(sender, texto);
+            // 3. Após a IA responder, agora sim, salvamos o que ela disse no histórico real
+            conversa.push({ "role": "model", "parts": [{ "text": texto }] });
         } else {
-            // Plano B: Se a IA não responder, envia o básico para não deixar o cliente no vácuo
             await enviarMensagem(sender, `*${i.Title}*\n💰 R$ ${i.Details?.ListPrice?._ || i.Details?.ListPrice}\n🔗 ${i.DetailViewUrl}`);
         }
     } catch (e) {
