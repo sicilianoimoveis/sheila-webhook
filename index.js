@@ -405,21 +405,37 @@ else if (functionCall.name === "processar_captacao") {
     resultados = resultados.slice(0, 3);
     console.log("LOG_DEBUG: Imóveis encontrados após filtro:", resultados.length);
 
-    if (resultados.length > 0) {
+   if (resultados.length > 0) {
+        // Envia uma mensagem inicial de apresentação
         await enviarMensagem(sender, "Encontrei estas opções para você:");
+        
         for (const i of resultados) {
-    const titulo = i.Title || "Imóvel disponível";
-    const desc = i.Details?.Description || "Veja os detalhes no link abaixo.";
-    const preco = i.Details?.ListPrice?._ || i.Details?.ListPrice || "Consultar";
-    const link = i.DetailViewUrl || "";
+            // Extração técnica limpa
+            const titulo = i.Title || "Imóvel disponível";
+            const desc = i.Details?.Description || "Veja os detalhes no link abaixo.";
+            const preco = i.Details?.ListPrice?._ || i.Details?.ListPrice || "Consultar";
+            const link = i.DetailViewUrl || "";
 
-    // Apenas passamos a informação limpa. 
-    // Removemos o limite de caracteres que cortava o texto.
-    const msgImovel = `*${titulo}*\n\n${desc}\n\n💰 R$ ${preco}\n🔗 ${link}`;
-    
-    await enviarMensagem(sender, msgImovel);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-}
+            // Montamos os dados técnicos para a IA (agora com o Link incluso)
+            const dadosTecnicos = `Título: ${titulo}, Descrição: ${desc}, Preço: R$ ${preco}, Link: ${link}`;
+
+            // Pedimos para a IA formatar esse dado técnico seguindo o SYSTEM_PROMPT
+            conversa.push({ 
+                "role": "user", 
+                "parts": [{ "text": `APRESENTE ESTE IMÓVEL AO CLIENTE: ${dadosTecnicos}. USE A DIRETRIZ DE APRESENTAÇÃO.` }] 
+            });
+
+            const respFinal = await axios.post(url, { 
+                "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, 
+                "contents": conversa 
+            });
+
+            const textoFormatado = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text || `*${titulo}*\n\n${desc}\n\n💰 R$ ${preco}\n🔗 ${link}`;
+
+            // Envia o texto já formatado pela IA (ou o padrão se falhar)
+            await enviarMensagem(sender, textoFormatado);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
         salvarHistorico(sender, conversa);
     } else {
         const msg = "Não encontrei imóveis com essas características agora. Gostaria que eu passasse seu contato para o nosso corretor buscar algo personalizado?";
