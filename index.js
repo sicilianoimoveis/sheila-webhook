@@ -234,6 +234,7 @@ app.post('/webhook', async (req, res) => {
         "required": ["intencao"]
     }
 }
+        
         { 
             "name": "qualificar_lead", 
             "description": "Chame ao perceber interesse claro em visita ou falar com corretor. Sempre extraia o nome do cliente da conversa.", 
