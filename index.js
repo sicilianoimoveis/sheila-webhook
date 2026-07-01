@@ -395,16 +395,25 @@ console.log("LOG_DEBUG: Imóveis encontrados após filtro:", resultados.length);
     // 3. Log de diagnóstico (Isso vai te mostrar exatamente quantos ele achou)
     console.log("LOG_DEBUG: Imóveis encontrados após filtro:", resultados.length);
 
-    if (resultados.length > 0) {
+   if (resultados.length > 0) {
         await enviarMensagem(sender, "Encontrei estas opções para você:");
         for (const i of resultados) {
+            // Extrai o título, descrição e preço com segurança
+            const titulo = i.Title || "Imóvel disponível";
+            const descCompleta = i.Details?.Description || "";
+            // Limita a descrição a 200 caracteres
+            const resumo = descCompleta.length > 200 ? descCompleta.substring(0, 197) + "..." : descCompleta;
             const preco = i.Details?.ListPrice?._ || i.Details?.ListPrice || "Consultar";
-            const resumo = `📍 ${i.Location?.Neighborhood || "Localização"}\n${i.Details?.Bedrooms || 0} quartos | ${i.PropertyType || "Imóvel"}\n💰 R$ ${preco}\n🔗 ${i.DetailViewUrl || ""}`;
-            await enviarMensagem(sender, resumo);
+            const link = i.DetailViewUrl || "";
+
+            // Formata a mensagem exatamente como você pediu
+            const msgImovel = `*${titulo}*\n\n${resumo}\n\n💰 R$ ${preco}\n🔗 ${link}`;
+            
+            await enviarMensagem(sender, msgImovel);
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
         salvarHistorico(sender, conversa);
-    } 
+    }
     else {
         const msg = "Não encontrei imóveis com essas características agora. Gostaria que eu passasse seu contato para o nosso corretor buscar algo personalizado?";
         await enviarMensagem(sender, msg);
