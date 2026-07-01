@@ -410,18 +410,31 @@ else if (functionCall.name === "processar_captacao") {
         await enviarMensagem(sender, "Encontrei estas opções para você:");
         
         for (const i of resultados) {
-    // Apenas prepara os dados técnicos para a IA consumir
     const dados = `Título: ${i.Title}, Descrição: ${i.Details?.Description}, Preço: ${i.Details?.ListPrice?._ || i.Details?.ListPrice}, Link: ${i.DetailViewUrl}`;
     
-    // Envia os dados para a IA decidir como escrever
     conversa.push({ "role": "user", "parts": [{ "text": `Apresente este imóvel seguindo a diretriz de apresentação: ${dados}` }] });
-    const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
-    const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
     
-    await enviarMensagem(sender, texto);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+        const respFinal = await axios.post(url, { 
+            "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, 
+            "contents": conversa 
+        });
+        
+        const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
+        if (texto) {
+            await enviarMensagem(sender, texto);
+        } else {
+            // Plano B: Se a IA não responder, envia o básico para não deixar o cliente no vácuo
+            await enviarMensagem(sender, `*${i.Title}*\n💰 R$ ${i.Details?.ListPrice?._ || i.Details?.ListPrice}\n🔗 ${i.DetailViewUrl}`);
         }
+    } catch (e) {
+        console.error("Erro na chamada da IA:", e);
+        await enviarMensagem(sender, `*${i.Title}*\n💰 R$ ${i.Details?.ListPrice?._ || i.Details?.ListPrice}\n🔗 ${i.DetailViewUrl}`);
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, 1000));
+}
         salvarHistorico(sender, conversa);
     } else {
         const msg = "Não encontrei imóveis com essas características agora. Gostaria que eu passasse seu contato para o nosso corretor buscar algo personalizado?";
