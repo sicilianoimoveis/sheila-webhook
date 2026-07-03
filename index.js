@@ -121,6 +121,15 @@ function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId 
 }
 
 // --- ROTAS ---
+app.get('/limpar-historico/:phone', async (req, res) => {
+    const { phone } = req.params;
+    
+    // Simplesmente salva uma array vazia no histórico do número, limpando tudo
+    salvarHistorico(phone, []);
+    
+    res.send(`Histórico do número ${phone} limpo com sucesso!`);
+});
+
 app.get('/chat/:sender', (req, res) => {
     const { sender } = req.params;
     const { token } = req.query;
