@@ -162,8 +162,9 @@ app.post('/webhook', async (req, res) => {
     if (!msgData) return res.sendStatus(200);
     
     const sender = msgData.from;
+    res.sendStatus(200);
     
-    // --- LÓGICA DE DEFINIÇÃO DO NOME ---
+  (async () => {
     const nomeMeta = req.body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile?.name;
     const nomeAtual = leadsIndex[sender]?.nome;
 
@@ -451,7 +452,7 @@ app.post('/webhook', async (req, res) => {
     } catch (error) { 
         console.error("Erro Webhook:", error.message); 
     }
-    res.sendStatus(200);
+    })().catch(err => console.error("Erro em background:", err));
 });
 
 app.post('/webhook-lead', async (req, res) => {
