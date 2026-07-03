@@ -395,10 +395,14 @@ app.post('/webhook', async (req, res) => {
                     
                     for (const i of resultados) {
                         const dados = `Título: ${i.Title}, Descrição: ${i.Details?.Description}, Preço: ${i.Details?.ListPrice?._ || i.Details?.ListPrice}, Link: ${i.DetailViewUrl}`;
-                        const payloadLocal = [...conversa, { 
+                        
+                        // --- AJUSTE ANTI-LOOPING: Cria o comando de injeção técnica ---
+                        const comandoInjecaoFiltro = { 
                             "role": "user", 
                             "parts": [{ "text": `Apresente este imóvel: ${dados}. Use a DIRETRIZ DE APRESENTAÇÃO.` }] 
-                        }];
+                        };
+                        
+                        const payloadLocal = [...conversa, comandoInjecaoFiltro];
 
                         try {
                             const respFinal = await axios.post(url, { 
@@ -408,6 +412,8 @@ app.post('/webhook', async (req, res) => {
                             const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
                             if (texto) {
                                 await enviarMensagem(sender, texto);
+                                // --- AJUSTE ANTI-LOOPING: Amarra o par técnico + resposta no histórico ---
+                                conversa.push(comandoInjecaoFiltro);
                                 conversa.push({ "role": "model", "parts": [{ "text": texto }] });
                             } else {
                                 await enviarMensagem(sender, `*${i.Title}*\n💰 R$ ${i.Details?.ListPrice?._ || i.Details?.ListPrice}\n🔗 ${i.DetailViewUrl}`);
@@ -428,16 +434,13 @@ app.post('/webhook', async (req, res) => {
             }
 
         } else {
-            // --- CORREÇÃO DO FLUXO DE TEXTO PURO (FALLBACK / ELSE IF CONTENT) ---
+            // --- CORREÇÃO DO FLUXO DE TEXTO PURO: Faz ela responder conversas normais ---
             const textoRespostaPura = contentResponse?.parts?.[0]?.text;
             
             if (textoRespostaPura) {
                 console.log("LOG_DEBUG: Resposta puramente textual gerada pela Sheila.");
                 
-                // 1. Envia a mensagem de texto normal via WhatsApp
                 await enviarMensagem(sender, textoRespostaPura);
-                
-                // 2. Garante o alinhamento correto inserindo o modelo no histórico antes de salvar
                 conversa.push({ "role": "model", "parts": [{ "text": textoRespostaPura }] });
                 salvarHistorico(sender, conversa);
             } else {
