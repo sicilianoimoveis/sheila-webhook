@@ -368,6 +368,9 @@ app.post('/webhook', async (req, res) => {
                     const descricao = normalize(v(i.Details?.Description));
                     const precoImovel = parseFloat(v(i.Details?.ListPrice)) || 0;
                     const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
+                    
+                    // Converte a quantidade de vagas do XML para um número real
+                    const qteVagas = parseInt(v(i.Details?.ParkingSpaces)) || 0;
 
                     const nIntencaoBusca = mapaIntencao[normalize(intencao)] || normalize(intencao);
                     const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
@@ -376,7 +379,9 @@ app.post('/webhook', async (req, res) => {
                     const matchIntencao = !intencao || transacaoXML.includes(nIntencaoBusca);
                     const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
                     const matchPreco = !precoMax || (precoImovel <= precoMax);
-                    const matchVaga = (vaga === undefined || vaga === null) || (!!i.Details?.ParkingSpaces === vaga);
+                    
+                    // NOVA LÓGICA DE VAGA: Se pediu vaga (true), o imóvel precisa ter 1 ou mais vagas. Se pediu sem vaga (false), tem que ser 0.
+                    const matchVaga = (vaga === undefined || vaga === null) || (vaga === true ? qteVagas > 0 : qteVagas === 0);
                     
                     const matchQuartos = !quartos || (modoExato ? (qteQuartos === quartos) : (qteQuartos >= quartos));
 
