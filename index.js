@@ -233,7 +233,7 @@ app.post('/webhook', async (req, res) => {
                             },
                             "bairro": { "type": "string", "description": "O bairro de preferência do cliente." },
                             "quartos": { "type": "number", "description": "Número mínimo de quartos desejado." },
-                            "vaga": { "type": "boolean", "description": "Se o imóvel precisa ter vaga de garagem (true para sim, false para não)." },
+                            "vaga": { "type": "integer",  "description": "A quantidade mínima de vagas de garagem que o cliente deseja. Se ele disser que faz questão de vaga mas não disser a quantidade, envie 1. Se ele disser que não quer vaga, envie 0."},
                             "precoMax": { "type": "number", "description": "Valor máximo que o cliente pretende pagar." },
                             "extras": { 
                                 "type": "array", 
@@ -362,41 +362,45 @@ app.post('/webhook', async (req, res) => {
                 const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
 
                 const filtra = (i, modoExato) => {
-                    const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
-                    
-                    const bairroImovel = normalize(v(i.Location?.Neighborhood));
-                    const tipoImovelXML = normalize(v(i.Details?.PropertyType));
-                    const transacaoXML = normalize(v(i.TransactionType));
-                    const descricao = normalize(v(i.Details?.Description));
-                    const precoImovel = parseFloat(v(i.Details?.ListPrice)) || 0;
-                    const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
-                    
-                    // Converte a quantidade de vagas do XML para um número real
-                    const qteVagas = parseInt(v(i.Details?.ParkingSpaces)) || 0;
+    const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
+    
+    const bairroImovel = normalize(v(i.Location?.Neighborhood));
+    const tipoImovelXML = normalize(v(i.Details?.PropertyType));
+    const transacaoXML = normalize(v(i.TransactionType));
+    const descricao = normalize(v(i.Details?.Description));
+    const precoImovel = parseFloat(v(i.Details?.ListPrice)) || 0;
+    const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
+    
+    // Captura segura de vagas: Se a tag ParkingSpaces sumir ou não existir no imóvel sem vaga, assume 0
+    const qteVagas = parseInt(v(i.Details?.ParkingSpaces || i.Details?.Garages || 0)) || 0;
 
-                    const nIntencaoBusca = mapaIntencao[normalize(intencao)] || normalize(intencao);
-                    const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
+    const nIntencaoBusca = mapaIntencao[normalize(intencao)] || normalize(intencao);
+    const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
 
-                    const matchBairro = !bairro || bairroImovel.includes(normalize(bairro));
-                    const matchIntencao = !intencao || transacaoXML.includes(nIntencaoBusca);
-                    const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
-                    const matchPreco = !precoMax || (precoImovel <= precoMax);
-                    
-                    // NOVA LÓGICA DE VAGA: Se pediu vaga (true), o imóvel precisa ter 1 ou mais vagas. Se pediu sem vaga (false), tem que ser 0.
-                    const matchVaga = (vaga === undefined || vaga === null) || (vaga === true ? qteVagas > 0 : qteVagas === 0);
-                    
-                    const matchQuartos = !quartos || (modoExato ? (qteQuartos === quartos) : (qteQuartos >= quartos));
+    const matchBairro = !bairro || bairroImovel.includes(normalize(bairro));
+    const matchIntencao = !intencao || transacaoXML.includes(nIntencaoBusca);
+    const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
+    const matchPreco = !precoMax || (precoImovel <= precoMax);
+    
+    // LÓGICA DE VAGA COMTIPO NUMBER:
+    // Se a IA não passar vaga (undefined/null), não filtra por vaga.
+    // Se o cliente pedir 0 vagas (vaga === 0), o imóvel precisa ter exatamente 0 vagas.
+    // Se o cliente pedir 1 ou mais vagas, o imóvel precisa ter no mínimo aquela quantidade (qteVagas >= vaga).
+    const matchVaga = (vaga === undefined || vaga === null) || 
+                      (vaga === 0 ? qteVagas === 0 : qteVagas >= vaga);
+    
+    const matchQuartos = !quartos || (modoExato ? (qteQuartos === quartos) : (qteQuartos >= quartos));
 
-                    const features = Array.isArray(i.Details?.Features?.Feature) 
-                        ? i.Details.Features.Feature.map(f => normalize(f)).join(' ') 
-                        : normalize(v(i.Details?.Features?.Feature));
-                        
-                    const matchExtras = !extras || extras.every(extra => 
-                        descricao.includes(normalize(extra)) || features.includes(normalize(extra))
-                    );
-                    
-                    return matchBairro && matchIntencao && matchTipo && matchQuartos && matchPreco && matchVaga && matchExtras;
-                };
+    const features = Array.isArray(i.Details?.Features?.Feature) 
+        ? i.Details.Features.Feature.map(f => normalize(f)).join(' ') 
+        : normalize(v(i.Details?.Features?.Feature));
+        
+    const matchExtras = !extras || extras.every(extra => 
+        descricao.includes(normalize(extra)) || features.includes(normalize(extra))
+    );
+    
+    return matchBairro && matchIntencao && matchTipo && matchQuartos && matchPreco && matchVaga && matchExtras;
+};
 
                 let resultados = cacheImoveis.filter(i => filtra(i, true));
 
