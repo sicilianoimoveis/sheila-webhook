@@ -88,19 +88,17 @@ function obterHistorico(sender) {
 }
 
 function salvarHistorico(sender, conversa) {
-    // Filtra mensagens técnicas antes de gravar
-    const conversaLimpa = conversa.filter(m => {
-        const txt = m.parts && m.parts[0] ? m.parts[0].text : (m.text || "");
-        return !txt.includes("CONSULTA DE IMÓVEL") && 
-               !txt.includes("Apresente este imóvel") &&
-               !txt.includes("O nome deste cliente é");
-    }).map(m => ({
+    // Limpamos apenas a estrutura técnica desnecessária, mas mantemos TODAS as mensagens
+    const conversaLimpa = conversa.map(m => ({
         role: m.role,
         text: m.parts && m.parts[0] ? m.parts[0].text : (m.text || "")
     }));
 
     historicos[sender] = conversaLimpa;
-    fs.promises.writeFile(FILE_PATH, JSON.stringify(historicos, null, 0)).catch(console.error);
+
+    // Grava tudo no disco
+    fs.promises.writeFile(FILE_PATH, JSON.stringify(historicos, null, 0))
+        .catch(err => console.error("Erro ao salvar histórico:", err));
 }
 
 function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId = null) {
@@ -123,17 +121,6 @@ function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId 
 }
 
 // --- ROTAS ---
-app.get('/limpar-historico/:sender', (req, res) => {
-    const { sender } = req.params;
-    if (historicos[sender]) {
-        delete historicos[sender];
-        fs.promises.writeFile(FILE_PATH, JSON.stringify(historicos, null, 0));
-        res.send(`Histórico de ${sender} limpo com sucesso.`);
-    } else {
-        res.send("Histórico não encontrado.");
-    }
-});
-
 app.get('/chat/:sender', (req, res) => {
     const { sender } = req.params;
     const { token } = req.query;
@@ -166,29 +153,14 @@ app.get('/leads', (req, res) => {
 });
 
 app.post('/webhook', async (req, res) => {
-   if (process.env.SHEILA_PAUSADA === 'true') {
+    if (process.env.SHEILA_PAUSADA === 'true') {
         console.log("LOG_DEBUG: Sheila pausada pela variável de ambiente.");
         return res.sendStatus(200); 
-    }    
-    // ... (código de verificação inicial)
+    }
     const msgData = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
     if (!msgData) return res.sendStatus(200);
-    
     const sender = msgData.from;
-    
-    // --- LÓGICA DE DEFINIÇÃO DO NOME ---
-    // Pega o nome da API do WhatsApp (Meta)
-    const nomeMeta = req.body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile?.name;
-    // Pega o nome que já temos no nosso arquivo de índice
-    const nomeAtual = leadsIndex[sender]?.nome;
-
-    // Prioridade: 1º Nome que já temos, 2º Nome da Meta, 3º "Cliente"
-    const nomeParaSalvar = (nomeAtual && nomeAtual !== "Lead Sem Nome") ? nomeAtual : (nomeMeta || "Cliente");
-
-    // Atualiza o índice com o nome decidido
-    atualizarIndiceLeads(sender, nomeParaSalvar, "WhatsApp");
-    // --- FIM DA LÓGICA ---
-
+    atualizarIndiceLeads(sender, null, "WhatsApp");
     const textoCliente = msgData.text?.body;
     const conversa = obterHistorico(sender);
     const referral = msgData?.referral?.source_url;
@@ -196,108 +168,22 @@ app.post('/webhook', async (req, res) => {
     try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`;
         conversa.push({ "role": "user", "parts": [{ "text": textoCliente }] });
-       // Localize o payloadInicial dentro do seu app.post('/webhook', ...)
-  const payloadInicial = {
-    "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT || "Você é a Sheila, corretora da Siciliano Imóveis." }] },
-    "contents": conversa,
-    "tools": [{ "functionDeclarations": [
-        { 
-            "name": "iniciar_captacao", 
-            "description": "Chamar quando o cliente expressar desejo de vender, alugar ou anunciar o próprio imóvel.", 
-            "parameters": { "type": "object", "properties": {}, "required": [] } 
-        },
-        { 
-            "name": "processar_captacao", 
-            "description": "Use para registrar o endereço ou localização quando o cliente fornecer durante a captação.", 
-            "parameters": { 
-                "type": "object", 
-                "properties": { "endereco": { "type": "string", "description": "O endereço do imóvel" } }, 
-                "required": ["endereco"] 
-            } 
-        },
-        { 
-            "name": "buscar_imovel", 
-            "description": "Consulta dados técnicos (rua, suites, vagas, features) pelo código ou URL.", 
-            "parameters": { "type": "object", "properties": { "termo_de_busca": { "type": "string" } }, "required": ["termo_de_busca"] } 
-        },
-     {
-    "name": "buscar_imoveis_filtros",
-    "description": "Busca imóveis com filtros detalhados de intenção, bairro, tipo, orçamento e características.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "intencao": { 
-                "type": "string", 
-                "description": "A intenção do cliente: use exatamente 'compra' ou 'aluguel'." 
-            },
-            "tipo": { 
-                "type": "string", 
-                "description": "O tipo do imóvel: 'apartamento', 'cobertura', 'casa', 'studio', 'sala comercial', 'casa em condominio', 'loja', 'imovel comercial' ou 'predio comercial'." 
-            },
-            "bairro": { "type": "string", "description": "O bairro de preferência do cliente." },
-            "quartos": { "type": "number", "description": "Número mínimo de quartos desejado." },
-            "vaga": { "type": "boolean", "description": "Se o imóvel precisa ter vaga de garagem (true para sim, false para não)." },
-            "precoMax": { "type": "number", "description": "Valor máximo que o cliente pretende pagar." },
-            "extras": { 
-                "type": "array", 
-                "items": { "type": "string" }, 
-                "description": "Lista de características extras (ex: 'varanda', 'suíte', 'lazer completo')." 
-            }
-        },
-        "required": ["intencao"]
-    }
-},
-        
-        { 
-            "name": "qualificar_lead", 
-            "description": "Chame ao perceber interesse claro em visita ou falar com corretor. Sempre extraia o nome do cliente da conversa.", 
-            "parameters": { "type": "object", "properties": { "interesse": { "type": "string" }, "nome": { "type": "string" } }, "required": ["interesse", "nome"] } 
-        }
-    ]}]
-};
+        const payloadInicial = {
+            "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT || "Você é a Sheila, corretora da Siciliano Imóveis." }] },
+            "contents": conversa,
+            "tools": [{ "functionDeclarations": [
+                { "name": "buscar_imovel", "description": "Consulta dados técnicos (rua, suites, vagas, features) pelo código ou URL.", "parameters": { "type": "object", "properties": { "termo_de_busca": { "type": "string" } }, "required": ["termo_de_busca"] } },
+                { "name": "qualificar_lead", "description": "Chame ao perceber interesse claro em visita ou falar com corretor. Sempre extraia o nome do cliente da conversa.", "parameters": { "type": "object", "properties": { "interesse": { "type": "string" }, "nome": { "type": "string" } }, "required": ["interesse", "nome"] } }
+            ]}]
+        };
         const response = await axios.post(url, payloadInicial);
         const contentResponse = response.data?.candidates?.[0]?.content;
         const functionCall = contentResponse?.parts?.[0]?.functionCall;
 
-       if (functionCall) {
-            console.log("LOG_DEBUG: A Sheila decidiu chamar a função:", functionCall.name);
-            console.log("LOG_DEBUG: Argumentos definidos pela Sheila:", JSON.stringify(functionCall.args));
-            console.log("LOG_DEBUG: Quantidade total de imóveis no cache:", cacheImoveis?.length || 0);
-        }
+        // ... (mantenha o código até a linha que identifica o functionCall)
 
         if (functionCall) {
-    // 1. Lógica de Captacao (Nova)
-   if (functionCall.name === "iniciar_captacao") {
-    // Garante que o lead exista no índice antes de acessar propriedades
-    if (!leadsIndex[sender]) {
-        atualizarIndiceLeads(sender, null, "WhatsApp"); 
-    }
-    
-    // Agora é seguro definir a categoria
-    leadsIndex[sender].categoria = 'captacao';
-    leadsIndex[sender].ultimaInteracao = new Date().toISOString();
-    fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
-    
-    // Segue com a resposta padrão da Sheila pedindo o endereço
-    const resposta = "Entendido! Para que nossa equipe de captação avalie seu imóvel, qual o endereço completo dele?";
-    await enviarMensagem(sender, resposta);
-        salvarHistorico(sender, conversa);
-}
-else if (functionCall.name === "processar_captacao") {
-            const { endereco } = functionCall.args;
-            
-            // 1. Finaliza a captação alterando a categoria para 'processado'
-            leadsIndex[sender].categoria = 'processado'; 
-            leadsIndex[sender].ultimaInteracao = new Date().toISOString();
-            fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
-            
-            // 2. Resposta de confirmação
-            const resposta = "Perfeito, anotei o endereço! Vou passar essas informações para nossa equipe de captação entrar em contato com você em breve.";
-            await enviarMensagem(sender, resposta);
-            
-            salvarHistorico(sender, conversa);
-        }      
-       else  if (functionCall.name === "qualificar_lead") {
+            if (functionCall.name === "qualificar_lead") {
                 // ... (seu código de qualificar_lead permanece igual)
                 let origemIdentificada = referral?.includes("instagram") ? "instagram" : "whatsapp_direto";
                 const nomeDoCliente = functionCall.args.nome || "Cliente";
@@ -314,7 +200,7 @@ else if (functionCall.name === "processar_captacao") {
 
                 atualizarIndiceLeads(sender, nomeDoCliente);
                 const msg = "Perfeito, acabei de encaminhar seu interesse para nossa equipe de corretores!";
-                
+                conversa.push({ "role": "model", "parts": [{ "text": msg }] });
                 await enviarMensagem(sender, msg);
                 salvarHistorico(sender, conversa); 
             
@@ -332,138 +218,22 @@ else if (functionCall.name === "processar_captacao") {
                 const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
                 const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
                 if (texto) { 
-                    
+                    conversa.push({ "role": "model", "parts": [{ "text": texto }] }); 
                     await enviarMensagem(sender, texto); 
                     salvarHistorico(sender, conversa); 
                 }
             } // Fechamento do else if buscar_imovel
 
- else if (functionCall.name === "buscar_imoveis_filtros") {
-    console.log("Filtros recebidos:", functionCall.args);
-    
-    // 1. Definição da função de normalização
-    const normalize = (str) => {
-        if (!str) return "";
-        return String(str).toLowerCase()
-            .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-            .replace(/[-\s]/g, "");
-    };
-
-    // 2. Mapas de conversão
-    const mapaTipos = {
-        "apartamento": "residential/apartment",
-        "cobertura": "residential/penthouse",
-        "casa": "residential/home",
-        "studio": "residential/flat",
-        "sala comercial": "commercial/office",
-        "casa em condominio": "residential/condo",
-        "loja": "commercial/loja",
-        "imovel comercial": "commercial/business",
-        "predio comercial": "commercial/business"
-    };
-
-    const mapaIntencao = {
-        "compra": "forsale",
-        "venda": "forsale",
-        "aluguel": "forrent",
-        "locacao": "forrent"
-    };
-
-    console.log("LOG_DEBUG: Entrou na função buscar_imoveis_filtros");
-    const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
-
-    // Função interna para aplicar os filtros de forma consistente
-    const filtra = (i, modoExato) => {
-        const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
-        
-        const bairroImovel = normalize(v(i.Location?.Neighborhood));
-        const tipoImovelXML = normalize(v(i.Details?.PropertyType));
-        const transacaoXML = normalize(v(i.TransactionType));
-        const descricao = normalize(v(i.Details?.Description));
-        const precoImovel = parseFloat(v(i.Details?.ListPrice)) || 0;
-        const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
-
-        const nIntencaoBusca = mapaIntencao[normalize(intencao)] || normalize(intencao);
-        const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
-
-        const matchBairro = !bairro || bairroImovel.includes(normalize(bairro));
-        const matchIntencao = !intencao || transacaoXML.includes(nIntencaoBusca);
-        const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
-        const matchPreco = !precoMax || (precoImovel <= precoMax);
-        const matchVaga = (vaga === undefined || vaga === null) || (!!i.Details?.ParkingSpaces === vaga);
-        
-        // Regra de quartos: exato (===) ou expandida (>=)
-        const matchQuartos = !quartos || (modoExato ? (qteQuartos === quartos) : (qteQuartos >= quartos));
-
-        const features = Array.isArray(i.Details?.Features?.Feature) 
-            ? i.Details.Features.Feature.map(f => normalize(f)).join(' ') 
-            : normalize(v(i.Details?.Features?.Feature));
-            
-        const matchExtras = !extras || extras.every(extra => 
-            descricao.includes(normalize(extra)) || features.includes(normalize(extra))
-        );
-        
-        return matchBairro && matchIntencao && matchTipo && matchQuartos && matchPreco && matchVaga && matchExtras;
-    };
-
-    // 1. Primeira tentativa: Busca Exata
-    let resultados = cacheImoveis.filter(i => filtra(i, true));
-
-    // 2. Backup: Se não encontrar, tenta buscar com critério expandido (>=)
-    if (resultados.length === 0 && quartos) {
-        resultados = cacheImoveis.filter(i => filtra(i, false));
-    }
-
-    // Corta os resultados
-    resultados = resultados.slice(0, 3);
-    console.log("LOG_DEBUG: Imóveis encontrados após filtro:", resultados.length);
-
-   if (resultados.length > 0) {
-        await enviarMensagem(sender, "Encontrei estas opções para você:");
-        
-        for (const i of resultados) {
-            const dados = `Título: ${i.Title}, Descrição: ${i.Details?.Description}, Preço: ${i.Details?.ListPrice?._ || i.Details?.ListPrice}, Link: ${i.DetailViewUrl}`;
-            const payloadLocal = [...conversa, { 
-                "role": "user", 
-                "parts": [{ "text": `Apresente este imóvel: ${dados}. Use a DIRETRIZ DE APRESENTAÇÃO.` }] 
-            }];
-
-            try {
-                const respFinal = await axios.post(url, { 
-                    "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, 
-                    "contents": payloadLocal 
-                });
-                const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (texto) {
-                    await enviarMensagem(sender, texto);
-                    conversa.push({ "role": "model", "parts": [{ "text": texto }] });
-                } else {
-                    await enviarMensagem(sender, `*${i.Title}*\n💰 R$ ${i.Details?.ListPrice?._ || i.Details?.ListPrice}\n🔗 ${i.DetailViewUrl}`);
-                }
-            } catch (e) {
-                console.error("Erro na chamada da IA:", e);
-                await enviarMensagem(sender, `*${i.Title}*\n💰 R$ ${i.Details?.ListPrice?._ || i.Details?.ListPrice}\n🔗 ${i.DetailViewUrl}`);
-            }
-            await new Promise(resolve => setTimeout(resolve, 1000));
+        } else if (contentResponse?.parts?.[0]?.text) {
+            conversa.push({ "role": "model", "parts": [{ "text": contentResponse.parts[0].text }] });
+            await enviarMensagem(sender, contentResponse.parts[0].text);
+            salvarHistorico(sender, conversa); 
         }
-        salvarHistorico(sender, conversa);
-    } else {
-        const msg = "Não encontrei imóveis com essas características agora. Gostaria que eu passasse seu contato para o nosso corretor buscar algo personalizado?";
-        await enviarMensagem(sender, msg);
-        salvarHistorico(sender, conversa);
+    } catch (error) { 
+        console.error("Erro Webhook:", error.message); 
     }
-} // FECHA O "else if (functionCall.name === "buscar_imoveis_filtros")"
-
-// NÃO COLOQUE MAIS NENHUMA CHAVE AQUI
-
-} // FECHA O "if (functionCall)" que iniciou lá no começo
-} // FECHA O "try" principal
-catch (error) { 
-    console.error("Erro Webhook:", error.message); 
-}
-res.sendStatus(200);
+    res.sendStatus(200);
 });
-
 app.post('/webhook-lead', async (req, res) => {
     const { name, phone, building_id, origin_desc } = req.body;
     const celular = phone ? phone.replace(/\D/g, '') : null;
@@ -520,61 +290,6 @@ app.post('/enviar-crm/:sender', async (req, res) => {
         res.status(500).send("Erro ao enviar para CRM.");
     }
 });
-// --- MONITORAMENTO AUTOMÁTICO DE LEADS (CAPTAÇÃO E REENGAJAMENTO) ---
-async function monitorarLeads() {
-    const agora = new Date();
-    
-    for (const sender in leadsIndex) {
-        const lead = leadsIndex[sender];
-        if (lead.enviadoParaCRM) continue; // Pula se já foi enviado
-
-        const ultimaInteracao = new Date(lead.ultimaInteracao);
-        const diffHoras = (agora - ultimaInteracao) / (1000 * 60 * 60);
-
-        // 1. Lógica de CAPTAÇÃO (Timeout de 2 horas sem endereço)
-        if (lead.categoria === 'captacao' && diffHoras >= 2) {
-            console.log(`LOG_DEBUG: Timeout de captação para ${sender}. Encaminhando.`);
-            await forcarEnvioCRM(sender, "Encaminhamento automático: Lead de captação não forneceu endereço em 2h.");
-            continue;
-        }
-
-        // 2. Lógica de REENGAJAMENTO (24 horas sem resposta do cliente)
-        if (diffHoras >= 24) {
-            console.log(`LOG_DEBUG: Reengajando lead inativo: ${sender}`);
-            const msgReengajamento = "Oi! Notei que não tivemos retorno. Ainda tem interesse no imóvel ou precisa de ajuda com algo mais específico?";
-            await enviarMensagem(sender, msgReengajamento);
-            
-            // Adiciona ao histórico para o Gemini saber que enviamos
-            const conversa = historicos[sender] || [];
-            conversa.push({ "role": "model", "parts": [{ "text": msgReengajamento }] });
-            salvarHistorico(sender, conversa);
-            
-            lead.ultimaInteracao = agora.toISOString(); // Atualiza para não repetir o envio em 30 min
-        }
-    }
-}
-
-// Executa a verificação a cada 30 minutos (1.800.000 ms)
-setInterval(monitorarLeads, 1800000);
-
-// Função auxiliar para forçar o envio ao CRM
-async function forcarEnvioCRM(sender, obs) {
-    const lead = leadsIndex[sender];
-    try {
-        const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
-        await axios.post('https://api.apresenta.me/webhook/integration/5099/ab72a9ac29cc5dba9a32eeb37f45461e', {
-            nome: lead.nome || "Cliente",
-            celular: sender,
-            origem: ORIGENS[lead.origem] || "5159",
-            mensagem: "Encaminhamento automático",
-            observacoes: `Sheila: ${obs}\nLink da conversa: ${linkEspelho}`
-        });
-        lead.enviadoParaCRM = true;
-        fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
-    } catch (err) {
-        console.error("Erro ao forçar envio ao CRM:", err.message);
-    }
-}
 
 // --- INICIALIZAÇÃO BLINDADA E TOLERANTE A FALHAS ---
 const PORT = process.env.PORT || 8080;
@@ -582,8 +297,10 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`LOG_DEBUG: Servidor online na porta ${PORT}`);
 
+    // Função de carregamento com verificação de existência e "retry"
     const carregarDados = async () => {
         try {
+            // Garante que o diretório existe
             const dir = path.dirname(FILE_PATH);
             if (!fs.existsSync(dir)) {
                 console.log("LOG_DEBUG: Diretório de dados não encontrado, criando...");
@@ -606,6 +323,7 @@ app.listen(PORT, '0.0.0.0', () => {
         }
     };
 
+    // Tenta carregar os dados agora e repete em 5 segundos caso o volume ainda esteja sendo montado
     carregarDados();
     setTimeout(carregarDados, 5000); 
 });
