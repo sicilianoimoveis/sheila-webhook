@@ -79,26 +79,28 @@ let leadsIndex = {};
 function obterHistorico(sender) {
     if (!historicos[sender]) return [];
 
-    // Converte o formato simples {role, text} para o formato técnico da API
-    // Isso garante que o Gemini receba a conversa exatamente como ele entende
+    // Garante que o Gemini sempre receba o formato de 'parts' perfeitamente limpo
     return historicos[sender].map(m => ({
         role: m.role,
-        parts: [{ text: m.text }] 
+        parts: [{ text: m.text || (m.parts && m.parts[0] ? m.parts[0].text : "") }] 
     }));
 }
 
 function salvarHistorico(sender, conversa) {
-    // Limpamos apenas a estrutura técnica desnecessária, mas mantemos TODAS as mensagens
+    if (!conversa || !Array.isArray(conversa)) return;
+
+    // Normaliza TODAS as mensagens para o formato simples antes de gravar no objeto global e no disco
     const conversaLimpa = conversa.map(m => ({
         role: m.role,
-        text: m.parts && m.parts[0] ? m.parts[0].text : (m.text || "")
-    }));
+        text: m.text || (m.parts && m.parts[0] ? m.parts[0].text : "")
+    })).filter(m => m.text !== ""); // Remove mensagens fantasias ou vazias
 
+    // Atualiza a variável global imediatamente (essencial para o fluxo async)
     historicos[sender] = conversaLimpa;
 
-    // Grava tudo no disco
-    fs.promises.writeFile(FILE_PATH, JSON.stringify(historicos, null, 0))
-        .catch(err => console.error("Erro ao salvar histórico:", err));
+    // Grava no disco de forma assíncrona com tratamento de erro
+    fs.promises.writeFile(FILE_PATH, JSON.stringify(historicos, null, 2))
+        .catch(err => console.error("❌ Erro crítico ao salvar histórico no arquivo:", err));
 }
 
 function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId = null) {
