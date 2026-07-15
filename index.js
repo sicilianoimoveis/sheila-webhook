@@ -405,7 +405,16 @@ app.post('/webhook', async (req, res) => {
                     const matchVaga = (vaga === undefined || vaga === null) || (!!i.Details?.ParkingSpaces === vaga);
                     
                     const matchQuartos = !quartos || (modoExato ? (qteQuartos === quartos) : (qteQuartos >= quartos));
+const passa = matchBairro && matchIntencao && matchTipo && matchQuartos && matchPreco && matchVaga;
 
+                    // --- LOG DE DIAGNÓSTICO ---
+                    if (!passa) {
+                        console.log(`DEBUG_REJEITADO: ID ${i.ListingID} | Bairro:${matchBairro} | Intenção:${matchIntencao} | Tipo:${matchTipo} | Quartos:${matchQuartos} | Preço:${matchPreco} | Vaga:${matchVaga}`);
+                    }
+                    // --------------------------
+
+                    return passa;
+                };
                     const features = Array.isArray(i.Details?.Features?.Feature) 
                         ? i.Details.Features.Feature.map(f => normalize(f)).join(' ') 
                         : normalize(v(i.Details?.Features?.Feature));
