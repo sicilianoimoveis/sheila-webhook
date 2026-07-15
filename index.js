@@ -386,10 +386,7 @@ app.post('/webhook', async (req, res) => {
                     const descricao = normalize(v(i.Details?.Description));
                     const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
                     const precoVenda = parseFloat(v(i.Details?.ListPrice)) || 0;
-                    const precoLocacao = parseFloat(
-        (i.Details?.RentalPrice && typeof i.Details.RentalPrice === 'object') 
-        ? (i.Details.RentalPrice._ || "0") 
-        : (i.Details?.RentalPrice || "0")
+                    const precoLocacao = parseFloat(v(i.Details?.RentalPrice)) || 0;
     );
 
                     const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
@@ -401,17 +398,10 @@ app.post('/webhook', async (req, res) => {
                         ? nIntencao.some(term => transacaoXML.includes(term))
                         : transacaoXML.includes(nIntencao));
                     const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
-                    const matchPreco = !precoMax || (
-    // Se o cliente busca aluguel, verifica se o imóvel tem locação compatível
-    (nIntencao === "forrent" && precoLocacao > 0 && precoLocacao <= precoMax) ||
-    // Se o cliente busca compra, verifica se o imóvel tem venda compatível
-    (nIntencao === "forsale" && precoVenda > 0 && precoVenda <= precoMax) ||
-    // Se a intenção não for definida ou clara, verifica se qualquer um dos preços cabe no orçamento
-    (!nIntencao && (
-        (precoLocacao > 0 && precoLocacao <= precoMax) || 
-        (precoVenda > 0 && precoVenda <= precoMax)
-    ))
-);
+                   const dentroDoOrcamento = !precoMax || (
+        (precoVenda > 0 && precoVenda <= precoMax) || 
+        (precoLocacao > 0 && precoLocacao <= precoMax)
+    );
                     const matchVaga = (vaga === undefined || vaga === null) || (!!i.Details?.ParkingSpaces === vaga);
                     
                     const matchQuartos = !quartos || (modoExato ? (qteQuartos === quartos) : (qteQuartos >= quartos));
@@ -424,7 +414,7 @@ app.post('/webhook', async (req, res) => {
                         descricao.includes(normalize(extra)) || features.includes(normalize(extra))
                     );
                     
-                    return matchBairro && matchIntencao && matchTipo && matchQuartos && matchPreco && matchVaga && matchExtras;
+                    return matchBairro && matchIntencao && matchTipo && matchQuartos && dentroDoOrcamento && matchVaga && matchExtras;
                 };
 
                 let resultados = cacheImoveis.filter(i => filtra(i, true));
