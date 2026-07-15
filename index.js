@@ -329,7 +329,7 @@ app.post('/webhook', async (req, res) => {
                     conversa.push({ "role": "model", "parts": [{ "text": texto }] });
                     salvarHistorico(sender, conversa); 
                 }
-            } 
+            
             else if (functionCall.name === "buscar_imoveis_filtros") {
                 console.log("Filtros recebidos:", functionCall.args);
                 
@@ -450,7 +450,7 @@ app.post('/webhook', async (req, res) => {
                     salvarHistorico(sender, conversa);
                 }
             }
-
+        }
          else {
             // --- CORREÇÃO DO FLUXO DE TEXTO PURO (FALLBACK / ELSE IF CONTENT) ---
             const textoRespostaPura = contentResponse?.parts?.[0]?.text;
