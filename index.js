@@ -387,7 +387,7 @@ app.post('/webhook', async (req, res) => {
                     const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
                     const precoVenda = parseFloat(v(i.Details?.ListPrice)) || 0;
                     const precoLocacao = parseFloat(v(i.Details?.RentalPrice)) || 0;
-    );
+    
 
                     const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
                     const nIntencao = mapaIntencao[normalize(intencao)] || normalize(intencao);
