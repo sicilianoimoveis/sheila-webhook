@@ -368,7 +368,7 @@ app.post('/webhook', async (req, res) => {
                     const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
                     const matchPreco = !precoMax || (
     (mapaIntencao[normalize(intencao)] === "forrent" && precoLocacao > 0 && precoLocacao <= precoMax) ||
-    (mapaIntencao[normalize(intencao)] !== "forrent" && precoVenda > 0 && precoVenda <= precoMax)
+    (mapaIntencao[normalize(intencao)] !== "forsale" && precoVenda > 0 && precoVenda <= precoMax)
 );
                     const matchVaga = (vaga === undefined || vaga === null) || (!!i.Details?.ParkingSpaces === vaga);
                     
