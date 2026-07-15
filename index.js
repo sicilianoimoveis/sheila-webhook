@@ -121,6 +121,28 @@ function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId 
 }
 
 // --- ROTAS ---
+app.get('/limpar-historico/:sender', async (req, res) => {
+    const { sender } = req.params;
+
+    if (historicos[sender]) {
+        // 1. Limpa o histórico apenas do número específico na memória
+        historicos[sender] = [];
+
+        try {
+            // 2. Grava o JSON completo atualizado no arquivo
+            await fs.promises.writeFile(FILE_PATH, JSON.stringify(historicos, null, 2));
+            
+            console.log(`LOG_DEBUG: Histórico do cliente ${sender} limpo com sucesso.`);
+            res.send(`Histórico de ${sender} limpo.`);
+        } catch (err) {
+            console.error(`ERRO: Falha ao salvar limpeza para ${sender}:`, err);
+            res.status(500).send("Erro ao salvar arquivo.");
+        }
+    } else {
+        res.status(404).send("Cliente não encontrado.");
+    }
+});
+
 app.get('/chat/:sender', (req, res) => {
     const { sender } = req.params;
     const { token } = req.query;
