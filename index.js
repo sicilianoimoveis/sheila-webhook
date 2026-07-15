@@ -327,60 +327,42 @@ app.post('/webhook', async (req, res) => {
             }
             else if (functionCall.name === "buscar_imoveis_filtros") {
                 console.log("Filtros recebidos:", functionCall.args);
-                const normalize = (str) => {
-                    if (!str) return "";
-                    return String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[-\s]/g, "");
-                };
-                const mapaTipos = {
-                    "apartamento": "residential/apartment",
-                    "cobertura": "residential/penthouse",
-                    "casa": "residential/home",
-                    "studio": "residential/flat",
-                    "sala comercial": "commercial/office",
-                    "casa em condominio": "residential/condo",
-                    "loja": "commercial/loja",
-                    "imovel comercial": "commercial/business",
-                    "predio comercial": "commercial/business"
-                };
-                const mapaIntencao = {
-                    "compra": ["forsale", "sale/rent"],
-                    "venda": ["forsale", "sale/rent"],
-                    "aluguel": ["forrent", "sale/rent"],
-                    "locacao": ["forrent", "sale/rent"]
-                };
+                
+                const normalize = (str) => String(str || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[-\s]/g, "");
+
                 const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
-                const nIntencao = mapaIntencao[normalize(intencao)] || [normalize(intencao)];
-                const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
-                const filtra = (i, modoExato) => {
-                    const bairroImovel = normalize(v(i.Location?.Neighborhood));
-                    const tipoImovelXML = normalize(v(i.Details?.PropertyType));
+                
+                // Mapeamento que resolve a dupla finalidade
+                const mapaTipos = { "apartamento": "residential/apartment", "cobertura": "residential/penthouse", "casa": "residential/home", "studio": "residential/flat", "sala comercial": "commercial/office", "casa em condominio": "residential/condo", "loja": "commercial/loja", "imovel comercial": "commercial/business", "predio comercial": "commercial/business" };
+                const termoIntencao = normalize(intencao).includes("compra") || normalize(intencao).includes("venda") ? "sale" : "rent";
+
+                const filtra = (i) => {
+                    const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
                     const transacaoXML = normalize(v(i.TransactionType));
-                    const descricao = normalize(v(i.Details?.Description));
-                    const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
-                    const precoVenda = parseFloat(v(i.Details?.ListPrice)) || 0;
-                    const precoLocacao = parseFloat(v(i.Details?.RentalPrice)) || 0;
-                    const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
-                    const matchBairro = !bairro || bairroImovel.includes(normalize(bairro));
-                    const matchIntencao = !intencao || (Array.isArray(nIntencao) ? nIntencao.some(term => transacaoXML.includes(term)) : transacaoXML.includes(nIntencao));
-                    const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
-                    const dentroDoOrcamento = !precoMax || ((precoVenda > 0 && precoVenda <= precoMax) || (precoLocacao > 0 && precoLocacao <= precoMax));
+                    
+                    // Valida intenção (aceita se for o tipo ou se for sale/rent)
+                    const matchIntencao = transacaoXML.includes(termoIntencao) || transacaoXML.includes("salerent");
+                    
+                    // Valida preço (checa venda se for venda, locação se for locação)
+                    const pV = parseFloat(v(i.Details?.ListPrice)) || 0;
+                    const pL = parseFloat(v(i.Details?.RentalPrice)) || 0;
+                    const matchPreco = !precoMax || (termoIntencao === "sale" ? (pV > 0 && pV <= precoMax) : (pL > 0 && pL <= precoMax));
+                    
+                    const matchBairro = !bairro || normalize(v(i.Location?.Neighborhood)).includes(normalize(bairro));
+                    const matchTipo = !tipo || normalize(v(i.Details?.PropertyType)).includes(mapaTipos[normalize(tipo)] || normalize(tipo));
                     const matchVaga = (vaga === undefined || vaga === null) || (!!i.Details?.ParkingSpaces === vaga);
-                    const matchQuartos = !quartos || (modoExato ? (qteQuartos === quartos) : (qteQuartos >= quartos));
-                    const features = Array.isArray(i.Details?.Features?.Feature) ? i.Details.Features.Feature.map(f => normalize(f)).join(' ') : normalize(v(i.Details?.Features?.Feature));
-                    const matchExtras = !extras || extras.every(extra => descricao.includes(normalize(extra)) || features.includes(normalize(extra)));
-                    const passa = matchBairro && matchIntencao && matchTipo && matchQuartos && dentroDoOrcamento && matchVaga && matchExtras;
-                    if (!passa) { console.log(`DEBUG_REJEITADO: ID ${i.ListingID} | Bairro:${matchBairro} | Intenção:${matchIntencao} | Preço:${dentroDoOrcamento}`); }
-                    return passa;
+                    const matchQuartos = !quartos || (parseInt(v(i.Details?.Bedrooms)) || 0) >= quartos;
+                    
+                    return matchBairro && matchIntencao && matchPreco && matchTipo && matchQuartos && matchVaga;
                 };
-                let resultados = cacheImoveis.filter(i => filtra(i, true));
-                if (resultados.length === 0 && quartos) { resultados = cacheImoveis.filter(i => filtra(i, false)); }
-                resultados = resultados.slice(0, 3);
+
+                let resultados = cacheImoveis.filter(filtra).slice(0, 3);
+
                 if (resultados.length > 0) {
                     await enviarMensagem(sender, "Encontrei estas opções para você:");
                     for (const i of resultados) {
-                        const pVenda = v(i.Details?.ListPrice);
-                        const pLocacao = v(i.Details?.RentalPrice);
-                        const dados = `Título: ${i.Title}, Valor Venda: R$ ${pVenda}, Valor Locação: R$ ${pLocacao}, Link: ${i.DetailViewUrl}`;
+                        const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
+                        const dados = `Título: ${i.Title}, Venda: R$ ${v(i.Details?.ListPrice)}, Locação: R$ ${v(i.Details?.RentalPrice)}, Link: ${i.DetailViewUrl}`;
                         await enviarMensagem(sender, dados);
                     }
                 } else {
