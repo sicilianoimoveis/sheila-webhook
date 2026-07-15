@@ -345,133 +345,86 @@ app.post('/webhook', async (req, res) => {
                     salvarHistorico(sender, conversa); 
                 }
             
-            else if (functionCall.name === "buscar_imoveis_filtros") {
-                console.log("Filtros recebidos:", functionCall.args);
-                
-                const normalize = (str) => {
-                    if (!str) return "";
-                    return String(str).toLowerCase()
-                        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-                        .replace(/[-\s]/g, "");
-                };
-
-                const mapaTipos = {
-                    "apartamento": "residential/apartment",
-                    "cobertura": "residential/penthouse",
-                    "casa": "residential/home",
-                    "studio": "residential/flat",
-                    "sala comercial": "commercial/office",
-                    "casa em condominio": "residential/condo",
-                    "loja": "commercial/loja",
-                    "imovel comercial": "commercial/business",
-                    "predio comercial": "commercial/business"
-                };
-
-                const mapaIntencao = {
-    "compra": ["forsale", "sale/rent"],
-    "venda": ["forsale", "sale/rent"],
-    "aluguel": ["forrent", "sale/rent"],
-    "locacao": ["forrent", "sale/rent"]
-};
-
-                console.log("LOG_DEBUG: Entrou na função buscar_imoveis_filtros");
-                const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
-
-                const filtra = (i, modoExato) => {
-                    const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
-                    
-                    const bairroImovel = normalize(v(i.Location?.Neighborhood));
-                    const tipoImovelXML = normalize(v(i.Details?.PropertyType));
-                    const transacaoXML = normalize(v(i.TransactionType));
-                    const descricao = normalize(v(i.Details?.Description));
-                    const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
-                    const precoVenda = parseFloat(v(i.Details?.ListPrice)) || 0;
-                    const precoLocacao = parseFloat(v(i.Details?.RentalPrice)) || 0;
+         else if (functionCall.name === "buscar_imoveis_filtros") {
+    console.log("Filtros recebidos:", functionCall.args);
     
+    const normalize = (str) => {
+        if (!str) return "";
+        return String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[-\s]/g, "");
+    };
 
-                    const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
-                    const nIntencao = mapaIntencao[normalize(intencao)] || normalize(intencao);
+    const mapaTipos = {
+        "apartamento": "residential/apartment",
+        "cobertura": "residential/penthouse",
+        "casa": "residential/home",
+        "studio": "residential/flat",
+        "sala comercial": "commercial/office",
+        "casa em condominio": "residential/condo",
+        "loja": "commercial/loja",
+        "imovel comercial": "commercial/business",
+        "predio comercial": "commercial/business"
+    };
 
-                    const matchBairro = !bairro || bairroImovel.includes(normalize(bairro));
-                    const matchIntencao = !intencao || 
-                      (Array.isArray(nIntencao) 
-                        ? nIntencao.some(term => transacaoXML.includes(term))
-                        : transacaoXML.includes(nIntencao));
-                    const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
-                   const dentroDoOrcamento = !precoMax || (
-        (precoVenda > 0 && precoVenda <= precoMax) || 
-        (precoLocacao > 0 && precoLocacao <= precoMax)
-    );
-                    const matchVaga = (vaga === undefined || vaga === null) || (!!i.Details?.ParkingSpaces === vaga);
-                    
-                    const matchQuartos = !quartos || (modoExato ? (qteQuartos === quartos) : (qteQuartos >= quartos));
-const passa = matchBairro && matchIntencao && matchTipo && matchQuartos && matchPreco && matchVaga;
+    const mapaIntencao = {
+        "compra": ["forsale", "sale/rent"],
+        "venda": ["forsale", "sale/rent"],
+        "aluguel": ["forrent", "sale/rent"],
+        "locacao": ["forrent", "sale/rent"]
+    };
 
-                    // --- LOG DE DIAGNÓSTICO ---
-                    if (!passa) {
-                        console.log(`DEBUG_REJEITADO: ID ${i.ListingID} | Bairro:${matchBairro} | Intenção:${matchIntencao} | Tipo:${matchTipo} | Quartos:${matchQuartos} | Preço:${matchPreco} | Vaga:${matchVaga}`);
-                    }
-                    // --------------------------
+    const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
+    const nIntencao = mapaIntencao[normalize(intencao)] || [normalize(intencao)];
 
-                    return passa;
-                };
-                    const features = Array.isArray(i.Details?.Features?.Feature) 
-                        ? i.Details.Features.Feature.map(f => normalize(f)).join(' ') 
-                        : normalize(v(i.Details?.Features?.Feature));
-                        
-                    const matchExtras = !extras || extras.every(extra => 
-                        descricao.includes(normalize(extra)) || features.includes(normalize(extra))
-                    );
-                    
-                    return matchBairro && matchIntencao && matchTipo && matchQuartos && dentroDoOrcamento && matchVaga && matchExtras;
-                };
+    const filtra = (i, modoExato) => {
+        const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
+        
+        const bairroImovel = normalize(v(i.Location?.Neighborhood));
+        const tipoImovelXML = normalize(v(i.Details?.PropertyType));
+        const transacaoXML = normalize(v(i.TransactionType));
+        const descricao = normalize(v(i.Details?.Description));
+        const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
+        const precoVenda = parseFloat(v(i.Details?.ListPrice)) || 0;
+        const precoLocacao = parseFloat(v(i.Details?.RentalPrice)) || 0;
 
-                let resultados = cacheImoveis.filter(i => filtra(i, true));
+        const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
 
-                if (resultados.length === 0 && quartos) {
-                    resultados = cacheImoveis.filter(i => filtra(i, false));
-                }
-
-                resultados = resultados.slice(0, 3);
-                console.log("LOG_DEBUG: Imóveis encontrados após filtro:", resultados.length);
-
-                if (resultados.length > 0) {
-                    await enviarMensagem(sender, "Encontrei estas opções para você:");
-                    
-                    for (const i of resultados) {
-                        const dados = `Título: ${i.Title}, Descrição: ${i.Details?.Description}, Valor de Venda: R$ ${pVenda}, Valor de Locação: R$ ${pLocacao}, Link: ${i.DetailViewUrl}`;
-                        const payloadLocal = [...conversa, { 
-    "role": "user", 
-    "parts": [{ "text": `Apresente este imóvel: ${dados}. Se o cliente busca compra, foque no valor de venda. Se busca aluguel, foque no valor de locação. Use a DIRETRIZ DE APRESENTAÇÃO.` }] 
-}];
-
-                        try {
-                            const respFinal = await axios.post(url, { 
-                                "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, 
-                                "contents": payloadLocal 
-                            });
-                            const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-                            if (texto) {
-                                await enviarMensagem(sender, texto);
-                                conversa.push({ "role": "model", "parts": [{ "text": texto }] });
-                            } else {
-                                await enviarMensagem(sender, `*${i.Title}*\n💰 R$ ${i.Details?.ListPrice?._ || i.Details?.ListPrice}\n🔗 ${i.DetailViewUrl}`);
-                            }
-                        } catch (e) {
-                            console.error("Erro na chamada da IA:", e);
-                            await enviarMensagem(sender, `*${i.Title}*\n💰 R$ ${i.Details?.ListPrice?._ || i.Details?.ListPrice}\n🔗 ${i.DetailViewUrl}`);
-                        }
-                        await new Promise(resolve => setTimeout(resolve, 1000));
-                    }
-                    salvarHistorico(sender, conversa);
-                } else {
-                    const msg = "Não encontrei imóveis com essas características agora. Gostaria que eu passasse seu contato para o nosso corretor buscar algo personalizado?";
-                    await enviarMensagem(sender, msg);
-                    conversa.push({ "role": "model", "parts": [{ "text": msg }] });
-                    salvarHistorico(sender, conversa);
-                }
-            }
+        const matchBairro = !bairro || bairroImovel.includes(normalize(bairro));
+        const matchIntencao = !intencao || (Array.isArray(nIntencao) ? nIntencao.some(term => transacaoXML.includes(term)) : transacaoXML.includes(nIntencao));
+        const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
+        const dentroDoOrcamento = !precoMax || ((precoVenda > 0 && precoVenda <= precoMax) || (precoLocacao > 0 && precoLocacao <= precoMax));
+        const matchVaga = (vaga === undefined || vaga === null) || (!!i.Details?.ParkingSpaces === vaga);
+        const matchQuartos = !quartos || (modoExato ? (qteQuartos === quartos) : (qteQuartos >= quartos));
+        
+        const features = Array.isArray(i.Details?.Features?.Feature) ? i.Details.Features.Feature.map(f => normalize(f)).join(' ') : normalize(v(i.Details?.Features?.Feature));
+        const matchExtras = !extras || extras.every(extra => descricao.includes(normalize(extra)) || features.includes(normalize(extra)));
+        
+        const passa = matchBairro && matchIntencao && matchTipo && matchQuartos && dentroDoOrcamento && matchVaga && matchExtras;
+        
+        if (!passa) {
+            console.log(`DEBUG_REJEITADO: ID ${i.ListingID} | Bairro:${matchBairro} | Intenção:${matchIntencao} | Preço:${dentroDoOrcamento}`);
         }
+        return passa;
+    };
+
+    let resultados = cacheImoveis.filter(i => filtra(i, true));
+    if (resultados.length === 0 && quartos) {
+        resultados = cacheImoveis.filter(i => filtra(i, false));
+    }
+    resultados = resultados.slice(0, 3);
+
+    if (resultados.length > 0) {
+        await enviarMensagem(sender, "Encontrei estas opções para você:");
+        for (const i of resultados) {
+            // Correção: usando variáveis pVenda e pLocacao extraídas aqui dentro
+            const pVenda = v(i.Details?.ListPrice);
+            const pLocacao = v(i.Details?.RentalPrice);
+            const dados = `Título: ${i.Title}, Valor Venda: R$ ${pVenda}, Valor Locação: R$ ${pLocacao}, Link: ${i.DetailViewUrl}`;
+            await enviarMensagem(sender, dados);
+        }
+    } else {
+        await enviarMensagem(sender, "Não encontrei imóveis com essas características.");
+    }
+}
          else {
             // --- CORREÇÃO DO FLUXO DE TEXTO PURO (FALLBACK / ELSE IF CONTENT) ---
             const textoRespostaPura = contentResponse?.parts?.[0]?.text;
