@@ -371,6 +371,9 @@ app.post('/webhook', async (req, res) => {
 
                 console.log("LOG_DEBUG: Entrou na função buscar_imoveis_filtros");
                 const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
+                const buscaIntencao = normalize(intencao || "");
+const isVenda = buscaIntencao.includes("compra") || buscaIntencao.includes("venda") || buscaIntencao.includes("sale");
+const isLocacao = buscaIntencao.includes("aluguel") || buscaIntencao.includes("locacao") || buscaIntencao.includes("rent");
 
                 const filtra = (i, modoExato) => {
                     const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
