@@ -443,7 +443,8 @@ app.post('/webhook', async (req, res) => {
             }
         }
 
-    } catch (error) { 
+    } 
+        catch (error) { 
         console.error("Erro Webhook:", error.message); 
     }
     res.sendStatus(200);
