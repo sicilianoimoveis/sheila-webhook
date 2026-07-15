@@ -304,28 +304,7 @@ app.post('/webhook', async (req, res) => {
                 conversa.push({ "role": "model", "parts": [{ "text": msg }] });
                 salvarHistorico(sender, conversa); 
             } 
-            else if (functionCall.name === "buscar_imovel") {
-                const termo = functionCall.args.termo_de_busca;
-                const imovel = cacheImoveis.find(i => String(i.ListingID) === String(termo) || (i.DetailViewUrl && i.DetailViewUrl.includes(termo)));
-                if (imovel) {
-                    atualizarIndiceLeads(sender, null, null, false, imovel.ListingID);
-                }
-                const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo)) || 'Não informado';
-                const precoV = v(imovel?.Details?.ListPrice);
-                const precoL = v(imovel?.Details?.RentalPrice);
-                const feat = imovel?.Features?.Feature ? (Array.isArray(imovel.Features.Feature) ? imovel.Features.Feature.join(', ') : imovel.Features.Feature) : "Nenhuma característica extra informada.";
-                const enderecoReal = imovel && imovel.Location ? (Array.isArray(imovel.Location) ? imovel.Location[0].Address : imovel.Location.Address) : "Não informado";
-                let dados = imovel ? `ID: ${imovel.ListingID}, Valor de Venda: R$ ${precoV}, Valor de Locação: R$ ${precoL}, Rua: ${v(enderecoReal)}, Suítes: ${v(imovel.Details.Suites)}, Vagas: ${v(imovel.Details.Garage)}, Bairro: ${v(imovel.Location.Neighborhood)}, Features: ${feat}, Descrição: ${v(imovel.Details.Description)}` : "Imóvel não localizado.";
-                conversa.push({ "role": "user", "parts": [{ "text": `CONSULTA DE IMÓVEL: ${dados}. USE APENAS ESTAS INFORMAÇÕES TÉCNICAS. NÃO INVENTE DADOS.` }] });
-                const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
-                const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (texto) { 
-                    await enviarMensagem(sender, texto); 
-                    conversa.push({ "role": "model", "parts": [{ "text": texto }] });
-                    salvarHistorico(sender, conversa); 
-                }
-            }
-            else if (functionCall.name === "buscar_imoveis_filtros") {
+      else if (functionCall.name === "buscar_imoveis_filtros") {
     console.log("Filtros recebidos:", functionCall.args);
 
     const normalize = (str) => String(str || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
@@ -334,7 +313,6 @@ app.post('/webhook', async (req, res) => {
 
     const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
     
-    // Identificação de intenção para os filtros
     const buscaIntencao = normalize(intencao || "");
     const isVenda = buscaIntencao.includes("compra") || buscaIntencao.includes("venda");
     const isLocacao = buscaIntencao.includes("aluguel") || buscaIntencao.includes("locacao");
@@ -345,7 +323,8 @@ app.post('/webhook', async (req, res) => {
         const transacaoXML = normalize(v(i.TransactionType));
         const pV = parseFloat(v(i.Details?.ListPrice)) || 0;
         const pL = parseFloat(v(i.Details?.RentalPrice)) || 0;
-        
+        const qteVagas = parseInt(v(i.Details?.Garage)) || 0;
+
         // Match Intenção
         let matchIntencao = false;
         if (isVenda) matchIntencao = transacaoXML.includes("sale") || transacaoXML.includes("salerent");
@@ -362,13 +341,19 @@ app.post('/webhook', async (req, res) => {
 
         const matchBairro = !bairro || normalize(v(i.Location?.Neighborhood)).includes(normalize(bairro));
         const matchTipo = !tipo || normalize(v(i.Details?.PropertyType)).includes(mapaTipos[normalize(tipo)] || normalize(tipo));
-        const matchVaga = (vaga === undefined || vaga === null) || (!!i.Details?.ParkingSpaces === vaga);
         const matchQuartos = !quartos || (modoExato ? (parseInt(v(i.Details?.Bedrooms)) || 0) === quartos : (parseInt(v(i.Details?.Bedrooms)) || 0) >= quartos);
+        
+        // Correção da Vaga: ignora se não pediu, valida presença se pediu
+        const matchVaga = (vaga === undefined || vaga === null || vaga === false) || (vaga === true && qteVagas > 0);
 
-        return matchBairro && matchIntencao && matchPreco && matchTipo && matchQuartos && matchVaga;
+        // Reintegração dos Extras
+        const descricao = normalize(v(i.Details?.Description));
+        const features = Array.isArray(i.Details?.Features?.Feature) ? i.Details.Features.Feature.map(f => normalize(f)).join(' ') : normalize(v(i.Details?.Features?.Feature));
+        const matchExtras = !extras || extras.every(extra => descricao.includes(normalize(extra)) || features.includes(normalize(extra)));
+
+        return matchBairro && matchIntencao && matchPreco && matchTipo && matchQuartos && matchVaga && matchExtras;
     };
 
-    // Fluxo de busca (Exato primeiro, depois relaxado nos quartos)
     let resultados = cacheImoveis.filter(i => filtra(i, true));
     if (resultados.length === 0 && quartos) {
         resultados = cacheImoveis.filter(i => filtra(i, false));
@@ -379,22 +364,15 @@ app.post('/webhook', async (req, res) => {
 
     if (resultados.length > 0) {
         await enviarMensagem(sender, "Encontrei estas opções para você:");
-        
         for (const i of resultados) {
             const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
             const precoExibicao = isVenda ? `R$ ${v(i.Details?.ListPrice)}` : `R$ ${v(i.Details?.RentalPrice)}`;
             const dados = `Título: ${i.Title}, Descrição: ${i.Details?.Description}, Preço: ${precoExibicao}, Link: ${i.DetailViewUrl}`;
             
-            const payloadLocal = [...conversa, { 
-                "role": "user", 
-                "parts": [{ "text": `Apresente este imóvel: ${dados}. Use a DIRETRIZ DE APRESENTAÇÃO.` }] 
-            }];
+            const payloadLocal = [...conversa, { "role": "user", "parts": [{ "text": `Apresente este imóvel: ${dados}. Use a DIRETRIZ DE APRESENTAÇÃO.` }] }];
 
             try {
-                const respFinal = await axios.post(url, { 
-                    "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, 
-                    "contents": payloadLocal 
-                });
+                const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": payloadLocal });
                 const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
                 if (texto) {
                     await enviarMensagem(sender, texto);
@@ -415,7 +393,7 @@ app.post('/webhook', async (req, res) => {
         conversa.push({ "role": "model", "parts": [{ "text": msg }] });
         salvarHistorico(sender, conversa);
     }
-} 
+}
             else {
                 console.log("LOG_DEBUG: Resposta vazia recebida da API do Gemini.");
             }
