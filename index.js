@@ -374,7 +374,9 @@ app.post('/webhook', async (req, res) => {
                 const buscaIntencao = normalize(intencao || "");
 const isVenda = buscaIntencao.includes("compra") || buscaIntencao.includes("venda") || buscaIntencao.includes("sale");
 const isLocacao = buscaIntencao.includes("aluguel") || buscaIntencao.includes("locacao") || buscaIntencao.includes("rent");
-
+const precoVendaMax = functionCall.args.precoVendaMax || 0;
+const precoLocacaoMax = functionCall.args.precoLocacaoMax || 0;
+                
                 const filtra = (i, modoExato) => {
                     const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
                     
