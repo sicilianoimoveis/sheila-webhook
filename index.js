@@ -168,10 +168,10 @@ app.get('/leads', (req, res) => {
 });
 
 app.post('/webhook', async (req, res) => {
-   if (process.env.SHEILA_PAUSADA === 'true') {
+    if (process.env.SHEILA_PAUSADA === 'true') {
         console.log("LOG_DEBUG: Sheila pausada pela variável de ambiente.");
         return res.sendStatus(200); 
-    }    
+    }   
     
     const msgData = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
     if (!msgData) return res.sendStatus(200);
@@ -268,11 +268,9 @@ app.post('/webhook', async (req, res) => {
                 if (!leadsIndex[sender]) {
                     atualizarIndiceLeads(sender, null, "WhatsApp"); 
                 }
-                
                 leadsIndex[sender].categoria = 'captacao';
                 leadsIndex[sender].ultimaInteracao = new Date().toISOString();
                 fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
-                
                 const resposta = "Entendido! Para que nossa equipe de captação avalie seu imóvel, qual o endereço completo dele?";
                 await enviarMensagem(sender, resposta);
                 conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
@@ -280,23 +278,19 @@ app.post('/webhook', async (req, res) => {
             }
             else if (functionCall.name === "processar_captacao") {
                 const { endereco } = functionCall.args;
-                
                 leadsIndex[sender].categoria = 'processado'; 
                 leadsIndex[sender].ultimaInteracao = new Date().toISOString();
                 fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
-                
                 const resposta = "Perfeito, anotei o endereço! Vou passar essas informações para nossa equipe de captação entrar em contato com você em breve.";
                 await enviarMensagem(sender, resposta);
                 conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
-                
                 salvarHistorico(sender, conversa);
-            }      
+            }    
             else if (functionCall.name === "qualificar_lead") {
                 let origemIdentificada = referral?.includes("instagram") ? "instagram" : "whatsapp_direto";
                 const nomeDoCliente = functionCall.args.nome || "Cliente";
                 const listaImoveis = leadsIndex[sender]?.imoveisInteresse?.join(', ') || "Nenhum imóvel vinculado";
                 const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
-                
                 await axios.post('https://api.apresenta.me/webhook/integration/5099/ab72a9ac29cc5dba9a32eeb37f45461e', {
                     nome: nomeDoCliente, 
                     celular: sender, 
@@ -304,39 +298,25 @@ app.post('/webhook', async (req, res) => {
                     mensagem: "Atendimento realizado pela Sheila", 
                     observacoes: `Resumo: ${functionCall.args.interesse}\nImóveis: ${listaImoveis}\nLink da conversa: ${linkEspelho}`
                 });
-
                 atualizarIndiceLeads(sender, nomeDoCliente);
                 const msg = "Perfeito, acabei de encaminhar seu interesse para nossa equipe de corretores!";
-                
                 await enviarMensagem(sender, msg);
                 conversa.push({ "role": "model", "parts": [{ "text": msg }] });
                 salvarHistorico(sender, conversa); 
             } 
             else if (functionCall.name === "buscar_imovel") {
-    const termo = functionCall.args.termo_de_busca;
-    const imovel = cacheImoveis.find(i => String(i.ListingID) === String(termo) || (i.DetailViewUrl && i.DetailViewUrl.includes(termo)));
-    
-    if (imovel) {
-        atualizarIndiceLeads(sender, null, null, false, imovel.ListingID);
-    }
-
-    const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo)) || 'Não informado';
-    
-    // --- CORREÇÃO AQUI ---
-    // Extrai ambos os valores corretamente
-    const precoV = v(imovel?.Details?.ListPrice);
-    const precoL = v(imovel?.Details?.RentalPrice);
-    
-    // Monta a string de dados de forma que a IA entenda as duas opções
-    const feat = imovel?.Features?.Feature ? (Array.isArray(imovel.Features.Feature) ? imovel.Features.Feature.join(', ') : imovel.Features.Feature) : "Nenhuma característica extra informada.";
-    const enderecoReal = imovel && imovel.Location ? (Array.isArray(imovel.Location) ? imovel.Location[0].Address : imovel.Location.Address) : "Não informado";
-    
-    let dados = imovel ? `ID: ${imovel.ListingID}, Valor de Venda: R$ ${precoV}, Valor de Locação: R$ ${precoL}, Rua: ${v(enderecoReal)}, Suítes: ${v(imovel.Details.Suites)}, Vagas: ${v(imovel.Details.Garage)}, Bairro: ${v(imovel.Location.Neighborhood)}, Features: ${feat}, Descrição: ${v(imovel.Details.Description)}` : "Imóvel não localizado.";
-    // ---------------------
-
-    conversa.push({ "role": "user", "parts": [{ "text": `CONSULTA DE IMÓVEL: ${dados}. USE APENAS ESTAS INFORMAÇÕES TÉCNICAS. NÃO INVENTE DADOS.` }] });
-    // ... resto do código permanece igual
-}
+                const termo = functionCall.args.termo_de_busca;
+                const imovel = cacheImoveis.find(i => String(i.ListingID) === String(termo) || (i.DetailViewUrl && i.DetailViewUrl.includes(termo)));
+                if (imovel) {
+                    atualizarIndiceLeads(sender, null, null, false, imovel.ListingID);
+                }
+                const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo)) || 'Não informado';
+                const precoV = v(imovel?.Details?.ListPrice);
+                const precoL = v(imovel?.Details?.RentalPrice);
+                const feat = imovel?.Features?.Feature ? (Array.isArray(imovel.Features.Feature) ? imovel.Features.Feature.join(', ') : imovel.Features.Feature) : "Nenhuma característica extra informada.";
+                const enderecoReal = imovel && imovel.Location ? (Array.isArray(imovel.Location) ? imovel.Location[0].Address : imovel.Location.Address) : "Não informado";
+                let dados = imovel ? `ID: ${imovel.ListingID}, Valor de Venda: R$ ${precoV}, Valor de Locação: R$ ${precoL}, Rua: ${v(enderecoReal)}, Suítes: ${v(imovel.Details.Suites)}, Vagas: ${v(imovel.Details.Garage)}, Bairro: ${v(imovel.Location.Neighborhood)}, Features: ${feat}, Descrição: ${v(imovel.Details.Description)}` : "Imóvel não localizado.";
+                conversa.push({ "role": "user", "parts": [{ "text": `CONSULTA DE IMÓVEL: ${dados}. USE APENAS ESTAS INFORMAÇÕES TÉCNICAS. NÃO INVENTE DADOS.` }] });
                 const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
                 const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
                 if (texto) { 
@@ -344,112 +324,85 @@ app.post('/webhook', async (req, res) => {
                     conversa.push({ "role": "model", "parts": [{ "text": texto }] });
                     salvarHistorico(sender, conversa); 
                 }
-            
-         else if (functionCall.name === "buscar_imoveis_filtros") {
-    console.log("Filtros recebidos:", functionCall.args);
-    
-    const normalize = (str) => {
-        if (!str) return "";
-        return String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[-\s]/g, "");
-    };
-
-    const mapaTipos = {
-        "apartamento": "residential/apartment",
-        "cobertura": "residential/penthouse",
-        "casa": "residential/home",
-        "studio": "residential/flat",
-        "sala comercial": "commercial/office",
-        "casa em condominio": "residential/condo",
-        "loja": "commercial/loja",
-        "imovel comercial": "commercial/business",
-        "predio comercial": "commercial/business"
-    };
-
-    const mapaIntencao = {
-        "compra": ["forsale", "sale/rent"],
-        "venda": ["forsale", "sale/rent"],
-        "aluguel": ["forrent", "sale/rent"],
-        "locacao": ["forrent", "sale/rent"]
-    };
-
-    const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
-    const nIntencao = mapaIntencao[normalize(intencao)] || [normalize(intencao)];
-
-    const filtra = (i, modoExato) => {
-        const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
-        
-        const bairroImovel = normalize(v(i.Location?.Neighborhood));
-        const tipoImovelXML = normalize(v(i.Details?.PropertyType));
-        const transacaoXML = normalize(v(i.TransactionType));
-        const descricao = normalize(v(i.Details?.Description));
-        const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
-        const precoVenda = parseFloat(v(i.Details?.ListPrice)) || 0;
-        const precoLocacao = parseFloat(v(i.Details?.RentalPrice)) || 0;
-
-        const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
-
-        const matchBairro = !bairro || bairroImovel.includes(normalize(bairro));
-        const matchIntencao = !intencao || (Array.isArray(nIntencao) ? nIntencao.some(term => transacaoXML.includes(term)) : transacaoXML.includes(nIntencao));
-        const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
-        const dentroDoOrcamento = !precoMax || ((precoVenda > 0 && precoVenda <= precoMax) || (precoLocacao > 0 && precoLocacao <= precoMax));
-        const matchVaga = (vaga === undefined || vaga === null) || (!!i.Details?.ParkingSpaces === vaga);
-        const matchQuartos = !quartos || (modoExato ? (qteQuartos === quartos) : (qteQuartos >= quartos));
-        
-        const features = Array.isArray(i.Details?.Features?.Feature) ? i.Details.Features.Feature.map(f => normalize(f)).join(' ') : normalize(v(i.Details?.Features?.Feature));
-        const matchExtras = !extras || extras.every(extra => descricao.includes(normalize(extra)) || features.includes(normalize(extra)));
-        
-        const passa = matchBairro && matchIntencao && matchTipo && matchQuartos && dentroDoOrcamento && matchVaga && matchExtras;
-        
-        if (!passa) {
-            console.log(`DEBUG_REJEITADO: ID ${i.ListingID} | Bairro:${matchBairro} | Intenção:${matchIntencao} | Preço:${dentroDoOrcamento}`);
-        }
-        return passa;
-    };
-
-    let resultados = cacheImoveis.filter(i => filtra(i, true));
-    if (resultados.length === 0 && quartos) {
-        resultados = cacheImoveis.filter(i => filtra(i, false));
-    }
-    resultados = resultados.slice(0, 3);
-
-    if (resultados.length > 0) {
-        await enviarMensagem(sender, "Encontrei estas opções para você:");
-        for (const i of resultados) {
-            // Correção: usando variáveis pVenda e pLocacao extraídas aqui dentro
-            const pVenda = v(i.Details?.ListPrice);
-            const pLocacao = v(i.Details?.RentalPrice);
-            const dados = `Título: ${i.Title}, Valor Venda: R$ ${pVenda}, Valor Locação: R$ ${pLocacao}, Link: ${i.DetailViewUrl}`;
-            await enviarMensagem(sender, dados);
-        }
-    } else {
-        await enviarMensagem(sender, "Não encontrei imóveis com essas características.");
-    }
-}
-         else {
-            // --- CORREÇÃO DO FLUXO DE TEXTO PURO (FALLBACK / ELSE IF CONTENT) ---
+            }
+            else if (functionCall.name === "buscar_imoveis_filtros") {
+                console.log("Filtros recebidos:", functionCall.args);
+                const normalize = (str) => {
+                    if (!str) return "";
+                    return String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[-\s]/g, "");
+                };
+                const mapaTipos = {
+                    "apartamento": "residential/apartment",
+                    "cobertura": "residential/penthouse",
+                    "casa": "residential/home",
+                    "studio": "residential/flat",
+                    "sala comercial": "commercial/office",
+                    "casa em condominio": "residential/condo",
+                    "loja": "commercial/loja",
+                    "imovel comercial": "commercial/business",
+                    "predio comercial": "commercial/business"
+                };
+                const mapaIntencao = {
+                    "compra": ["forsale", "sale/rent"],
+                    "venda": ["forsale", "sale/rent"],
+                    "aluguel": ["forrent", "sale/rent"],
+                    "locacao": ["forrent", "sale/rent"]
+                };
+                const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
+                const nIntencao = mapaIntencao[normalize(intencao)] || [normalize(intencao)];
+                const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
+                const filtra = (i, modoExato) => {
+                    const bairroImovel = normalize(v(i.Location?.Neighborhood));
+                    const tipoImovelXML = normalize(v(i.Details?.PropertyType));
+                    const transacaoXML = normalize(v(i.TransactionType));
+                    const descricao = normalize(v(i.Details?.Description));
+                    const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
+                    const precoVenda = parseFloat(v(i.Details?.ListPrice)) || 0;
+                    const precoLocacao = parseFloat(v(i.Details?.RentalPrice)) || 0;
+                    const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
+                    const matchBairro = !bairro || bairroImovel.includes(normalize(bairro));
+                    const matchIntencao = !intencao || (Array.isArray(nIntencao) ? nIntencao.some(term => transacaoXML.includes(term)) : transacaoXML.includes(nIntencao));
+                    const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
+                    const dentroDoOrcamento = !precoMax || ((precoVenda > 0 && precoVenda <= precoMax) || (precoLocacao > 0 && precoLocacao <= precoMax));
+                    const matchVaga = (vaga === undefined || vaga === null) || (!!i.Details?.ParkingSpaces === vaga);
+                    const matchQuartos = !quartos || (modoExato ? (qteQuartos === quartos) : (qteQuartos >= quartos));
+                    const features = Array.isArray(i.Details?.Features?.Feature) ? i.Details.Features.Feature.map(f => normalize(f)).join(' ') : normalize(v(i.Details?.Features?.Feature));
+                    const matchExtras = !extras || extras.every(extra => descricao.includes(normalize(extra)) || features.includes(normalize(extra)));
+                    const passa = matchBairro && matchIntencao && matchTipo && matchQuartos && dentroDoOrcamento && matchVaga && matchExtras;
+                    if (!passa) { console.log(`DEBUG_REJEITADO: ID ${i.ListingID} | Bairro:${matchBairro} | Intenção:${matchIntencao} | Preço:${dentroDoOrcamento}`); }
+                    return passa;
+                };
+                let resultados = cacheImoveis.filter(i => filtra(i, true));
+                if (resultados.length === 0 && quartos) { resultados = cacheImoveis.filter(i => filtra(i, false)); }
+                resultados = resultados.slice(0, 3);
+                if (resultados.length > 0) {
+                    await enviarMensagem(sender, "Encontrei estas opções para você:");
+                    for (const i of resultados) {
+                        const pVenda = v(i.Details?.ListPrice);
+                        const pLocacao = v(i.Details?.RentalPrice);
+                        const dados = `Título: ${i.Title}, Valor Venda: R$ ${pVenda}, Valor Locação: R$ ${pLocacao}, Link: ${i.DetailViewUrl}`;
+                        await enviarMensagem(sender, dados);
+                    }
+                } else {
+                    await enviarMensagem(sender, "Não encontrei imóveis com essas características.");
+                }
+            }
+        } else {
             const textoRespostaPura = contentResponse?.parts?.[0]?.text;
-            
             if (textoRespostaPura) {
                 console.log("LOG_DEBUG: Resposta puramente textual gerada pela Sheila.");
-                
-                // 1. Envia a mensagem de texto normal via WhatsApp
                 await enviarMensagem(sender, textoRespostaPura);
-                
-                // 2. Garante o alinhamento correto inserindo o modelo no histórico antes de salvar
                 conversa.push({ "role": "model", "parts": [{ "text": textoRespostaPura }] });
                 salvarHistorico(sender, conversa);
             } else {
                 console.log("LOG_DEBUG: Resposta vazia recebida da API do Gemini.");
             }
         }
-
-    } 
-        catch (error) { 
+    } catch (error) { 
         console.error("Erro Webhook:", error.message); 
     }
     res.sendStatus(200);
 });
-
 app.post('/webhook-lead', async (req, res) => {
     const { name, phone, building_id, origin_desc } = req.body;
     const celular = phone ? phone.replace(/\D/g, '') : null;
