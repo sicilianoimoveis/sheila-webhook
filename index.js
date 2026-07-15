@@ -340,7 +340,7 @@ app.post('/webhook', async (req, res) => {
                     salvarHistorico(sender, conversa); 
                 }
             } 
-           else if (functionCall.name === "buscar_imoveis_filtros") {
+          else if (functionCall.name === "buscar_imoveis_filtros") {
     console.log("Filtros recebidos:", functionCall.args);
     
     const normalize = (str) => {
@@ -397,7 +397,6 @@ app.post('/webhook', async (req, res) => {
             
         const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
         
-        // Lógica exclusiva de preço: não exige ambos, apenas o correspondente à intenção
         let matchPreco = true;
         if (precoMax > 0) {
             if (isVenda) {
