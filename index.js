@@ -305,7 +305,7 @@ app.post('/webhook', async (req, res) => {
         atualizarIndiceLeads(sender, null, null, false, imovel.ListingID);
     }
 
-    const v = (campo) => (campo && typeof campo === 'object' ? campo._ : campo) || 'Não informado';
+    const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo)) || 'Não informado';
     
     // --- CORREÇÃO AQUI ---
     // Extrai ambos os valores corretamente
@@ -371,7 +371,11 @@ app.post('/webhook', async (req, res) => {
                     const descricao = normalize(v(i.Details?.Description));
                     const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
                     const precoVenda = parseFloat(v(i.Details?.ListPrice)) || 0;
-                    const precoLocacao = parseFloat(v(i.Details?.RentalPrice)) || 0;
+                    const precoLocacao = parseFloat(
+        (i.Details?.RentalPrice && typeof i.Details.RentalPrice === 'object') 
+        ? (i.Details.RentalPrice._ || "0") 
+        : (i.Details?.RentalPrice || "0")
+    );
 
                     const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
                     const nIntencao = mapaIntencao[normalize(intencao)] || normalize(intencao);
