@@ -353,11 +353,11 @@ app.post('/webhook', async (req, res) => {
                 };
 
                 const mapaIntencao = {
-                    "compra": "forsale",
-                    "venda": "forsale",
-                    "aluguel": "forrent",
-                    "locacao": "forrent"
-                };
+    "compra": ["forsale", "sale/rent"],
+    "venda": ["forsale", "sale/rent"],
+    "aluguel": ["forrent", "sale/rent"],
+    "locacao": ["forrent", "sale/rent"]
+};
 
                 console.log("LOG_DEBUG: Entrou na função buscar_imoveis_filtros");
                 const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
@@ -381,7 +381,10 @@ app.post('/webhook', async (req, res) => {
                     const nIntencao = mapaIntencao[normalize(intencao)] || normalize(intencao);
 
                     const matchBairro = !bairro || bairroImovel.includes(normalize(bairro));
-                    const matchIntencao = !intencao || transacaoXML.includes(nIntencao);
+                    const matchIntencao = !intencao || 
+                      (Array.isArray(nIntencao) 
+                        ? nIntencao.some(term => transacaoXML.includes(term))
+                        : transacaoXML.includes(nIntencao));
                     const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
                     const matchPreco = !precoMax || (
     // Se o cliente busca aluguel, verifica se o imóvel tem locação compatível
