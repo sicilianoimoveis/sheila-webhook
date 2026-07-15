@@ -451,7 +451,7 @@ app.post('/webhook', async (req, res) => {
                 }
             }
 
-        } else {
+         else {
             // --- CORREÇÃO DO FLUXO DE TEXTO PURO (FALLBACK / ELSE IF CONTENT) ---
             const textoRespostaPura = contentResponse?.parts?.[0]?.text;
             
