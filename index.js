@@ -79,26 +79,28 @@ let leadsIndex = {};
 function obterHistorico(sender) {
     if (!historicos[sender]) return [];
 
-    // Converte o formato simples {role, text} para o formato técnico da API
-    // Isso garante que o Gemini receba a conversa exatamente como ele entende
+    // Garante que o Gemini sempre receba o formato de 'parts' perfeitamente limpo
     return historicos[sender].map(m => ({
         role: m.role,
-        parts: [{ text: m.text }] 
+        parts: [{ text: m.text || (m.parts && m.parts[0] ? m.parts[0].text : "") }] 
     }));
 }
 
 function salvarHistorico(sender, conversa) {
-    // Limpamos apenas a estrutura técnica desnecessária, mas mantemos TODAS as mensagens
+    if (!conversa || !Array.isArray(conversa)) return;
+
+    // Normaliza TODAS as mensagens para o formato simples antes de gravar no objeto global e no disco
     const conversaLimpa = conversa.map(m => ({
         role: m.role,
-        text: m.parts && m.parts[0] ? m.parts[0].text : (m.text || "")
-    }));
+        text: m.text || (m.parts && m.parts[0] ? m.parts[0].text : "")
+    })).filter(m => m.text !== ""); // Remove mensagens fantasias ou vazias
 
+    // Atualiza a variável global imediatamente (essencial para o fluxo async)
     historicos[sender] = conversaLimpa;
 
-    // Grava tudo no disco
-    fs.promises.writeFile(FILE_PATH, JSON.stringify(historicos, null, 0))
-        .catch(err => console.error("Erro ao salvar histórico:", err));
+    // Grava no disco de forma assíncrona com tratamento de erro
+    fs.promises.writeFile(FILE_PATH, JSON.stringify(historicos, null, 2))
+        .catch(err => console.error("❌ Erro crítico ao salvar histórico no arquivo:", err));
 }
 
 function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId = null) {
@@ -121,6 +123,15 @@ function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId 
 }
 
 // --- ROTAS ---
+app.get('/limpar-historico/:phone', async (req, res) => {
+    const { phone } = req.params;
+    
+    // Simplesmente salva uma array vazia no histórico do número, limpando tudo
+    salvarHistorico(phone, []);
+    
+    res.send(`Histórico do número ${phone} limpo com sucesso!`);
+});
+
 app.get('/chat/:sender', (req, res) => {
     const { sender } = req.params;
     const { token } = req.query;
@@ -162,8 +173,9 @@ app.post('/webhook', async (req, res) => {
     if (!msgData) return res.sendStatus(200);
     
     const sender = msgData.from;
+    res.sendStatus(200);
     
-    // --- LÓGICA DE DEFINIÇÃO DO NOME ---
+  (async () => {
     const nomeMeta = req.body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile?.name;
     const nomeAtual = leadsIndex[sender]?.nome;
 
@@ -221,7 +233,7 @@ app.post('/webhook', async (req, res) => {
                             },
                             "bairro": { "type": "string", "description": "O bairro de preferência do cliente." },
                             "quartos": { "type": "number", "description": "Número mínimo de quartos desejado." },
-                            "vaga": { "type": "boolean", "description": "Se o imóvel precisa ter vaga de garagem (true para sim, false para não)." },
+                            "vaga": { "type": "integer",  "description": "A quantidade mínima de vagas de garagem que o cliente deseja. Se ele disser que faz questão de vaga mas não disser a quantidade, envie 1. Se ele disser que não quer vaga, envie 0."},
                             "precoMax": { "type": "number", "description": "Valor máximo que o cliente pretende pagar." },
                             "extras": { 
                                 "type": "array", 
@@ -350,36 +362,45 @@ app.post('/webhook', async (req, res) => {
                 const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
 
                 const filtra = (i, modoExato) => {
-                    const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
-                    
-                    const bairroImovel = normalize(v(i.Location?.Neighborhood));
-                    const tipoImovelXML = normalize(v(i.Details?.PropertyType));
-                    const transacaoXML = normalize(v(i.TransactionType));
-                    const descricao = normalize(v(i.Details?.Description));
-                    const precoImovel = parseFloat(v(i.Details?.ListPrice)) || 0;
-                    const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
+    const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
+    
+    const bairroImovel = normalize(v(i.Location?.Neighborhood));
+    const tipoImovelXML = normalize(v(i.Details?.PropertyType));
+    const transacaoXML = normalize(v(i.TransactionType));
+    const descricao = normalize(v(i.Details?.Description));
+    const precoImovel = parseFloat(v(i.Details?.ListPrice)) || 0;
+    const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
+    
+    // Captura segura de vagas: Se a tag ParkingSpaces sumir ou não existir no imóvel sem vaga, assume 0
+    const qteVagas = parseInt(v(i.Details?.ParkingSpaces || i.Details?.Garages || 0)) || 0;
 
-                    const nIntencaoBusca = mapaIntencao[normalize(intencao)] || normalize(intencao);
-                    const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
+    const nIntencaoBusca = mapaIntencao[normalize(intencao)] || normalize(intencao);
+    const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
 
-                    const matchBairro = !bairro || bairroImovel.includes(normalize(bairro));
-                    const matchIntencao = !intencao || transacaoXML.includes(nIntencaoBusca);
-                    const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
-                    const matchPreco = !precoMax || (precoImovel <= precoMax);
-                    const matchVaga = (vaga === undefined || vaga === null) || (!!i.Details?.ParkingSpaces === vaga);
-                    
-                    const matchQuartos = !quartos || (modoExato ? (qteQuartos === quartos) : (qteQuartos >= quartos));
+    const matchBairro = !bairro || bairroImovel.includes(normalize(bairro));
+    const matchIntencao = !intencao || transacaoXML.includes(nIntencaoBusca);
+    const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
+    const matchPreco = !precoMax || (precoImovel <= precoMax);
+    
+    // LÓGICA DE VAGA COMTIPO NUMBER:
+    // Se a IA não passar vaga (undefined/null), não filtra por vaga.
+    // Se o cliente pedir 0 vagas (vaga === 0), o imóvel precisa ter exatamente 0 vagas.
+    // Se o cliente pedir 1 ou mais vagas, o imóvel precisa ter no mínimo aquela quantidade (qteVagas >= vaga).
+    const matchVaga = (vaga === undefined || vaga === null) || 
+                      (vaga === 0 ? qteVagas === 0 : qteVagas >= vaga);
+    
+    const matchQuartos = !quartos || (modoExato ? (qteQuartos === quartos) : (qteQuartos >= quartos));
 
-                    const features = Array.isArray(i.Details?.Features?.Feature) 
-                        ? i.Details.Features.Feature.map(f => normalize(f)).join(' ') 
-                        : normalize(v(i.Details?.Features?.Feature));
-                        
-                    const matchExtras = !extras || extras.every(extra => 
-                        descricao.includes(normalize(extra)) || features.includes(normalize(extra))
-                    );
-                    
-                    return matchBairro && matchIntencao && matchTipo && matchQuartos && matchPreco && matchVaga && matchExtras;
-                };
+    const features = Array.isArray(i.Details?.Features?.Feature) 
+        ? i.Details.Features.Feature.map(f => normalize(f)).join(' ') 
+        : normalize(v(i.Details?.Features?.Feature));
+        
+    const matchExtras = !extras || extras.every(extra => 
+        descricao.includes(normalize(extra)) || features.includes(normalize(extra))
+    );
+    
+    return matchBairro && matchIntencao && matchTipo && matchQuartos && matchPreco && matchVaga && matchExtras;
+};
 
                 let resultados = cacheImoveis.filter(i => filtra(i, true));
 
@@ -395,10 +416,14 @@ app.post('/webhook', async (req, res) => {
                     
                     for (const i of resultados) {
                         const dados = `Título: ${i.Title}, Descrição: ${i.Details?.Description}, Preço: ${i.Details?.ListPrice?._ || i.Details?.ListPrice}, Link: ${i.DetailViewUrl}`;
-                        const payloadLocal = [...conversa, { 
+                        
+                        // --- AJUSTE ANTI-LOOPING: Cria o comando de injeção técnica ---
+                        const comandoInjecaoFiltro = { 
                             "role": "user", 
                             "parts": [{ "text": `Apresente este imóvel: ${dados}. Use a DIRETRIZ DE APRESENTAÇÃO.` }] 
-                        }];
+                        };
+                        
+                        const payloadLocal = [...conversa, comandoInjecaoFiltro];
 
                         try {
                             const respFinal = await axios.post(url, { 
@@ -408,6 +433,8 @@ app.post('/webhook', async (req, res) => {
                             const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
                             if (texto) {
                                 await enviarMensagem(sender, texto);
+                                // --- AJUSTE ANTI-LOOPING: Amarra o par técnico + resposta no histórico ---
+                                conversa.push(comandoInjecaoFiltro);
                                 conversa.push({ "role": "model", "parts": [{ "text": texto }] });
                             } else {
                                 await enviarMensagem(sender, `*${i.Title}*\n💰 R$ ${i.Details?.ListPrice?._ || i.Details?.ListPrice}\n🔗 ${i.DetailViewUrl}`);
@@ -428,16 +455,13 @@ app.post('/webhook', async (req, res) => {
             }
 
         } else {
-            // --- CORREÇÃO DO FLUXO DE TEXTO PURO (FALLBACK / ELSE IF CONTENT) ---
+            // --- CORREÇÃO DO FLUXO DE TEXTO PURO: Faz ela responder conversas normais ---
             const textoRespostaPura = contentResponse?.parts?.[0]?.text;
             
             if (textoRespostaPura) {
                 console.log("LOG_DEBUG: Resposta puramente textual gerada pela Sheila.");
                 
-                // 1. Envia a mensagem de texto normal via WhatsApp
                 await enviarMensagem(sender, textoRespostaPura);
-                
-                // 2. Garante o alinhamento correto inserindo o modelo no histórico antes de salvar
                 conversa.push({ "role": "model", "parts": [{ "text": textoRespostaPura }] });
                 salvarHistorico(sender, conversa);
             } else {
@@ -448,7 +472,7 @@ app.post('/webhook', async (req, res) => {
     } catch (error) { 
         console.error("Erro Webhook:", error.message); 
     }
-    res.sendStatus(200);
+    })().catch(err => console.error("Erro em background:", err));
 });
 
 app.post('/webhook-lead', async (req, res) => {
