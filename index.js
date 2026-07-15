@@ -298,17 +298,30 @@ app.post('/webhook', async (req, res) => {
                 salvarHistorico(sender, conversa); 
             } 
             else if (functionCall.name === "buscar_imovel") {
-                const termo = functionCall.args.termo_de_busca;
-                const imovel = cacheImoveis.find(i => String(i.ListingID) === String(termo) || (i.DetailViewUrl && i.DetailViewUrl.includes(termo)));
-                if (imovel) {
-                    atualizarIndiceLeads(sender, null, null, false, imovel.ListingID);
-                }
-                const v = (campo) => (campo && typeof campo === 'object' ? campo._ : campo) || 'Não informado';
-                const feat = imovel?.Features?.Feature ? (Array.isArray(imovel.Features.Feature) ? imovel.Features.Feature.join(', ') : imovel.Features.Feature) : "Nenhuma característica extra informada.";
-                const enderecoReal = imovel && imovel.Location ? (Array.isArray(imovel.Location) ? imovel.Location[0].Address : imovel.Location.Address) : "Não informado";
-                let dados = imovel ? `ID: ${imovel.ListingID}, Preço: R$ ${v(imovel.Details.ListPrice)}, Rua: ${v(enderecoReal)}, Suítes: ${v(imovel.Details.Suites)}, Vagas: ${v(imovel.Details.Garage)}, Bairro: ${v(imovel.Location.Neighborhood)}, Features: ${feat}, Descrição: ${v(imovel.Details.Description)}` : "Imóvel não localizado.";
-                
-                conversa.push({ "role": "user", "parts": [{ "text": `CONSULTA DE IMÓVEL: ${dados}. USE APENAS ESTAS INFORMAÇÕES TÉCNICAS. NÃO INVENTE DADOS.` }] });
+    const termo = functionCall.args.termo_de_busca;
+    const imovel = cacheImoveis.find(i => String(i.ListingID) === String(termo) || (i.DetailViewUrl && i.DetailViewUrl.includes(termo)));
+    
+    if (imovel) {
+        atualizarIndiceLeads(sender, null, null, false, imovel.ListingID);
+    }
+
+    const v = (campo) => (campo && typeof campo === 'object' ? campo._ : campo) || 'Não informado';
+    
+    // --- CORREÇÃO AQUI ---
+    // Extrai ambos os valores corretamente
+    const precoV = v(imovel?.Details?.ListPrice);
+    const precoL = v(imovel?.Details?.RentalPrice);
+    
+    // Monta a string de dados de forma que a IA entenda as duas opções
+    const feat = imovel?.Features?.Feature ? (Array.isArray(imovel.Features.Feature) ? imovel.Features.Feature.join(', ') : imovel.Features.Feature) : "Nenhuma característica extra informada.";
+    const enderecoReal = imovel && imovel.Location ? (Array.isArray(imovel.Location) ? imovel.Location[0].Address : imovel.Location.Address) : "Não informado";
+    
+    let dados = imovel ? `ID: ${imovel.ListingID}, Valor de Venda: R$ ${precoV}, Valor de Locação: R$ ${precoL}, Rua: ${v(enderecoReal)}, Suítes: ${v(imovel.Details.Suites)}, Vagas: ${v(imovel.Details.Garage)}, Bairro: ${v(imovel.Location.Neighborhood)}, Features: ${feat}, Descrição: ${v(imovel.Details.Description)}` : "Imóvel não localizado.";
+    // ---------------------
+
+    conversa.push({ "role": "user", "parts": [{ "text": `CONSULTA DE IMÓVEL: ${dados}. USE APENAS ESTAS INFORMAÇÕES TÉCNICAS. NÃO INVENTE DADOS.` }] });
+    // ... resto do código permanece igual
+}
                 const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
                 const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
                 if (texto) { 
