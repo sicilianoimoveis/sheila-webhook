@@ -356,8 +356,9 @@ app.post('/webhook', async (req, res) => {
                     const tipoImovelXML = normalize(v(i.Details?.PropertyType));
                     const transacaoXML = normalize(v(i.TransactionType));
                     const descricao = normalize(v(i.Details?.Description));
-                    const precoImovel = parseFloat(v(i.Details?.ListPrice)) || 0;
                     const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
+                    const precoVenda = parseFloat(v(i.Details?.ListPrice)) || 0;
+                    const precoLocacao = parseFloat(v(i.Details?.RentalPrice)) || 0;
 
                     const nIntencaoBusca = mapaIntencao[normalize(intencao)] || normalize(intencao);
                     const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
@@ -365,7 +366,10 @@ app.post('/webhook', async (req, res) => {
                     const matchBairro = !bairro || bairroImovel.includes(normalize(bairro));
                     const matchIntencao = !intencao || transacaoXML.includes(nIntencaoBusca);
                     const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
-                    const matchPreco = !precoMax || (precoImovel <= precoMax);
+                    const matchPreco = !precoMax || (
+    (mapaIntencao[normalize(intencao)] === "forrent" && precoLocacao > 0 && precoLocacao <= precoMax) ||
+    (mapaIntencao[normalize(intencao)] !== "forrent" && precoVenda > 0 && precoVenda <= precoMax)
+);
                     const matchVaga = (vaga === undefined || vaga === null) || (!!i.Details?.ParkingSpaces === vaga);
                     
                     const matchQuartos = !quartos || (modoExato ? (qteQuartos === quartos) : (qteQuartos >= quartos));
@@ -394,11 +398,11 @@ app.post('/webhook', async (req, res) => {
                     await enviarMensagem(sender, "Encontrei estas opções para você:");
                     
                     for (const i of resultados) {
-                        const dados = `Título: ${i.Title}, Descrição: ${i.Details?.Description}, Preço: ${i.Details?.ListPrice?._ || i.Details?.ListPrice}, Link: ${i.DetailViewUrl}`;
+                        const dados = `Título: ${i.Title}, Descrição: ${i.Details?.Description}, Valor de Venda: R$ ${pVenda}, Valor de Locação: R$ ${pLocacao}, Link: ${i.DetailViewUrl}`;
                         const payloadLocal = [...conversa, { 
-                            "role": "user", 
-                            "parts": [{ "text": `Apresente este imóvel: ${dados}. Use a DIRETRIZ DE APRESENTAÇÃO.` }] 
-                        }];
+    "role": "user", 
+    "parts": [{ "text": `Apresente este imóvel: ${dados}. Se o cliente busca compra, foque no valor de venda. Se busca aluguel, foque no valor de locação. Use a DIRETRIZ DE APRESENTAÇÃO.` }] 
+}];
 
                         try {
                             const respFinal = await axios.post(url, { 
