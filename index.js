@@ -244,7 +244,8 @@ app.post('/webhook', async (req, res) => {
                             "bairro": { "type": "string", "description": "O bairro de preferência do cliente." },
                             "quartos": { "type": "number", "description": "Número mínimo de quartos desejado." },
                             "vaga": { "type": "boolean", "description": "Se o imóvel precisa ter vaga de garagem (true para sim, false para não)." },
-                            "precoMax": { "type": "number", "description": "Valor máximo que o cliente pretende pagar." },
+                            "precoVendaMax": { "type": "number", "description": "Valor máximo para compra." },
+"precoLocacaoMax": { "type": "number", "description": "Valor máximo para aluguel." },
                             "extras": { 
                                 "type": "array", 
                                 "items": { "type": "string" }, 
@@ -378,16 +379,22 @@ app.post('/webhook', async (req, res) => {
                     const tipoImovelXML = normalize(v(i.Details?.PropertyType));
                     const transacaoXML = normalize(v(i.TransactionType));
                     const descricao = normalize(v(i.Details?.Description));
-                    const precoImovel = parseFloat(v(i.Details?.ListPrice)) || 0;
+                    const pV = parseFloat(v(i.Details?.ListPrice)) || 0; // Preço de Venda do XML
+                    const pL = parseFloat(v(i.Details?.RentalPrice)) || 0; // Preço de Locação do XML
                     const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
 
                     const nIntencaoBusca = mapaIntencao[normalize(intencao)] || normalize(intencao);
                     const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
 
                     const matchBairro = !bairro || bairroImovel.includes(normalize(bairro));
-                    const matchIntencao = !intencao || transacaoXML.includes(nIntencaoBusca);
+                    const matchIntencao = !intencao || 
+    (isVenda && (transacaoXML.includes("sale") || transacaoXML.includes("salerent"))) ||
+    (isLocacao && (transacaoXML.includes("rent") || transacaoXML.includes("salerent")));
                     const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
-                    const matchPreco = !precoMax || (precoImovel <= precoMax);
+                    const matchPreco = (
+    (!precoVendaMax || (pV > 0 && pV <= precoVendaMax)) &&
+    (!precoLocacaoMax || (pL > 0 && pL <= precoLocacaoMax))
+);
                     const matchVaga = (vaga === undefined || vaga === null) || (!!i.Details?.ParkingSpaces === vaga);
                     
                     const matchQuartos = !quartos || (modoExato ? (qteQuartos === quartos) : (qteQuartos >= quartos));
@@ -416,7 +423,7 @@ app.post('/webhook', async (req, res) => {
                     await enviarMensagem(sender, "Encontrei estas opções para você:");
                     
                     for (const i of resultados) {
-                        const dados = `Título: ${i.Title}, Descrição: ${i.Details?.Description}, Preço: ${i.Details?.ListPrice?._ || i.Details?.ListPrice}, Link: ${i.DetailViewUrl}`;
+                        const dados = onst dados = `Título: ${i.Title}, Descrição: ${i.Details?.Description}, Preço Venda: R$ ${precoV}, Preço Locação: R$ ${precoL}, Link: ${i.DetailViewUrl}`;
                         const payloadLocal = [...conversa, { 
                             "role": "user", 
                             "parts": [{ "text": `Apresente este imóvel: ${dados}. Use a DIRETRIZ DE APRESENTAÇÃO.` }] 
@@ -431,16 +438,26 @@ app.post('/webhook', async (req, res) => {
                             if (texto) {
                                 await enviarMensagem(sender, texto);
                                 conversa.push({ "role": "model", "parts": [{ "text": texto }] });
-                            } else {
-                                await enviarMensagem(sender, `*${i.Title}*\n💰 R$ ${i.Details?.ListPrice?._ || i.Details?.ListPrice}\n🔗 ${i.DetailViewUrl}`);
-                            }
-                        } catch (e) {
-                            console.error("Erro na chamada da IA:", e);
-                            await enviarMensagem(sender, `*${i.Title}*\n💰 R$ ${i.Details?.ListPrice?._ || i.Details?.ListPrice}\n🔗 ${i.DetailViewUrl}`);
+                          } else {
+                            // Define o preço de forma simples: se tiver aluguel, usa ele; senão, usa venda.
+                            const precoV = i.Details?.ListPrice?._ || i.Details?.ListPrice || "0";
+                            const precoL = i.Details?.RentalPrice?._ || i.Details?.RentalPrice || "0";
+                            const precoDisplay = (precoL !== "0" && precoL !== "Não informado") ? `R$ ${precoL} (Locação)` : `R$ ${precoV} (Venda)`;
+                            
+                            await enviarMensagem(sender, `*${i.Title}*\n💰 ${precoDisplay}\n🔗 ${i.DetailViewUrl}`);
                         }
-                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    } catch (e) {
+                        console.error("Erro na chamada da IA:", e);
+                        // Repete a mesma lógica de preço no catch para garantir que a mensagem saia
+                        const precoV = i.Details?.ListPrice?._ || i.Details?.ListPrice || "0";
+                        const precoL = i.Details?.RentalPrice?._ || i.Details?.RentalPrice || "0";
+                        const precoDisplay = (precoL !== "0" && precoL !== "Não informado") ? `R$ ${precoL} (Locação)` : `R$ ${precoV} (Venda)`;
+                        
+                        await enviarMensagem(sender, `*${i.Title}*\n💰 ${precoDisplay}\n🔗 ${i.DetailViewUrl}`);
                     }
-                    salvarHistorico(sender, conversa);
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+                salvarHistorico(sender, conversa);
                 } else {
                     const msg = "Não encontrei imóveis com essas características agora. Gostaria que eu passasse seu contato para o nosso corretor buscar algo personalizado?";
                     await enviarMensagem(sender, msg);
