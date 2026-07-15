@@ -360,15 +360,22 @@ app.post('/webhook', async (req, res) => {
                     const precoVenda = parseFloat(v(i.Details?.ListPrice)) || 0;
                     const precoLocacao = parseFloat(v(i.Details?.RentalPrice)) || 0;
 
-                    const nIntencaoBusca = mapaIntencao[normalize(intencao)] || normalize(intencao);
                     const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
+                    const nIntencao = mapaIntencao[normalize(intencao)] || normalize(intencao);
 
                     const matchBairro = !bairro || bairroImovel.includes(normalize(bairro));
-                    const matchIntencao = !intencao || transacaoXML.includes(nIntencaoBusca);
+                    const matchIntencao = !intencao || transacaoXML.includes(nIntencao);
                     const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
                     const matchPreco = !precoMax || (
-    (mapaIntencao[normalize(intencao)] === "forrent" && precoLocacao > 0 && precoLocacao <= precoMax) ||
-    (mapaIntencao[normalize(intencao)] !== "forsale" && precoVenda > 0 && precoVenda <= precoMax)
+    // Se o cliente busca aluguel, verifica se o imóvel tem locação compatível
+    (nIntencao === "forrent" && precoLocacao > 0 && precoLocacao <= precoMax) ||
+    // Se o cliente busca compra, verifica se o imóvel tem venda compatível
+    (nIntencao === "forsale" && precoVenda > 0 && precoVenda <= precoMax) ||
+    // Se a intenção não for definida ou clara, verifica se qualquer um dos preços cabe no orçamento
+    (!nIntencao && (
+        (precoLocacao > 0 && precoLocacao <= precoMax) || 
+        (precoVenda > 0 && precoVenda <= precoMax)
+    ))
 );
                     const matchVaga = (vaga === undefined || vaga === null) || (!!i.Details?.ParkingSpaces === vaga);
                     
