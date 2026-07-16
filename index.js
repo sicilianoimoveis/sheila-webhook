@@ -67,6 +67,23 @@ async function enviarTemplateLead(para, nome, linkImovel) {
             components: [{ type: "body", parameters: [{ type: "text", text: nome }, { type: "text", text: linkImovel }] }]
         }
     };
+
+    async function enviarTemplateReengajamento(para, nome) {
+    const url = `https://graph.facebook.com/v25.0/1110417002164010/messages`;
+    const payload = {
+        messaging_product: "whatsapp",
+        to: para,
+        type: "template",
+        template: {
+            name: "rengajamento", // Nome do template na Meta
+            language: { code: "pt_BR" },
+            components: [{ 
+                type: "body", 
+                parameters: [{ type: "text", text: nome }] // Variável {{1}} com o nome do lead
+            }]
+        }
+    };
+        
     await axios.post(url, payload, { headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}` } });
 }
 
@@ -513,18 +530,31 @@ const vagaNum = (typeof vaga === 'boolean') ? (vaga ? 1 : 0) : parseInt(vaga);
 app.post('/webhook-lead', async (req, res) => {
     const { name, phone, building_id, origin_desc } = req.body;
     const celular = phone ? phone.replace(/\D/g, '') : null;
+    
     if (!name || !celular || !building_id) return res.status(400).send("Dados incompletos.");
+    
     try {
         const imovel = cacheImoveis.find(i => String(i.ListingID) === String(building_id));
         const link = imovel ? imovel.DetailViewUrl : "consulte em nosso site";
-        const conversa = obterHistorico(celular);
-        conversa.push({ role: "system", parts: [{ text: `O nome deste cliente é ${name}.` }] });
-        conversa.push({ role: "model", parts: [{ text: `Olá ${name}, recebemos sua solicitação para o imóvel: ${link}.` }] });
+        
+        // 1. Dispara o template que já está configurado no Meta
         await enviarTemplateLead(celular, name, link);
+        
+        // 2. Registra o que foi enviado no histórico da Sheila para manter a continuidade
+        // O texto precisa espelhar exatamente o que está no corpo do seu template 'contato_lead'
+        const textoTemplate = `Olá ${name}, tudo bem? Recebemos sua solicitação para obter informações sobre o imóvel: ${link}. Sou a Sheila da Siciliano Imóveis, gostaria de mais informações sobre o imóvel?`;
+        
+        const conversa = obterHistorico(celular);
+        conversa.push({ role: "model", parts: [{ text: textoTemplate }] });
+        
         salvarHistorico(celular, conversa); 
         atualizarIndiceLeads(celular, name, origin_desc?.name, false, building_id);
-        res.status(200).send("Lead processado");
-    } catch (error) { console.error("Erro lead:", error.message); res.status(500).send("Erro"); }
+        
+        res.status(200).send("Lead processado e histórico atualizado");
+    } catch (error) { 
+        console.error("Erro lead:", error.message); 
+        res.status(500).send("Erro"); 
+    }
 });
 
 app.get('/central', basicAuth, (req, res) => {
@@ -586,17 +616,23 @@ async function monitorarLeads() {
 
         // 2. Lógica de REENGAJAMENTO (24 horas sem resposta do cliente)
         if (diffHoras >= 24) {
-            console.log(`LOG_DEBUG: Reengajando lead inativo: ${sender}`);
-            const msgReengajamento = "Oi! Notei que não tivemos retorno. Ainda tem interesse no imóvel ou precisa de ajuda com algo mais específico?";
-            await enviarMensagem(sender, msgReengajamento);
-            
-            // Adiciona ao histórico para o Gemini saber que enviamos
-            const conversa = historicos[sender] || [];
-            conversa.push({ "role": "model", "parts": [{ "text": msgReengajamento }] });
-            salvarHistorico(sender, conversa);
-            
-            lead.ultimaInteracao = agora.toISOString(); // Atualiza para não repetir o envio em 30 min
-        }
+        console.log(`LOG_DEBUG: Reengajando lead inativo via template: ${sender}`);
+        
+        // Pega o nome do lead no seu índice de leads para preencher o template
+        const nomeLead = leadsIndex[sender]?.nome || "cliente";
+        
+        // Chama o template oficial
+        await enviarTemplateReengajamento(sender, nomeLead);
+        
+        // Adiciona ao histórico o conteúdo exato do template
+        const msgReengajamento = `Oi ${nomeLead}! Notei que não tivemos retorno. Ainda tem interesse no imóvel ou precisa de ajuda com algo mais específico?`;
+        
+        const conversa = historicos[sender] || [];
+        conversa.push({ "role": "model", "parts": [{ "text": msgReengajamento }] });
+        salvarHistorico(sender, conversa);
+        
+        lead.ultimaInteracao = agora.toISOString(); 
+    }
     }
 }
 
