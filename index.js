@@ -220,12 +220,18 @@ function obterHistorico(sender) {
     if (!historicos[sender]) return [];
     return historicos[sender].map(m => ({
         role: m.role,
-        parts: Array.isArray(m.parts) ? m.parts : [{ text: m.text || "" }]
+        parts: Array.isArray(m.parts) ? m.parts : [{ text: m.text || "" }],
+        timestamp: m.timestamp // Garante que a hora seja carregada
     }));
 }
 
 function salvarHistorico(sender, conversa) {
-    historicos[sender] = conversa.map(m => ({ role: m.role, parts: m.parts }));
+    historicos[sender] = conversa.map(m => ({ 
+        role: m.role, 
+        parts: m.parts,
+        // Se a mensagem já tem um horário, mantém. Se for uma mensagem nova, cria o horário exato de agora.
+        timestamp: m.timestamp || new Date().toISOString() 
+    }));
     fs.writeFileSync(FILE_PATH, JSON.stringify(historicos, null, 2));
 }
 
@@ -336,7 +342,12 @@ app.get('/chat/:sender', (req, res) => {
     <div class="lead-info"><strong>Cliente:</strong> ${nomeLead}<br><small>${sender}</small><br><a href="https://wa.me/${sender}" style="color:#075e54;">Enviar WhatsApp</a></div>
     ${mensagensFiltradas.map(m => {
         const text = m.parts && m.parts[0] ? m.parts[0].text : (m.text || "");
-        return `<div class="msg ${m.role}">${text}<span class="time">${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit'})}</span></div>`;
+        
+        // CORREÇÃO DA DATA: Usa a hora salva. Se for uma mensagem antiga (sem data), usa a atual como fallback para não quebrar.
+        const dataMsg = m.timestamp ? new Date(m.timestamp) : new Date();
+        const timeString = dataMsg.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit'});
+
+        return `<div class="msg ${m.role}">${text}<span class="time">${timeString}</span></div>`;
     }).join('')}</body></html>`;
 
     res.send(html);
