@@ -120,12 +120,34 @@ const obterPrecosFormatados = (imovel) => {
 // --- FUNÇÕES DE ENVIO E TRANSCRIÇÃO ---
 async function enviarMensagem(para, texto) {
     const url = `https://graph.facebook.com/v25.0/1110417002164010/messages`;
-    try {
-        await axios.post(url, { messaging_product: 'whatsapp', to: para, type: 'text', text: { body: texto } },
-        { headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}` } });
-    } catch (error) { console.error('Erro ao enviar:', error.message); }
+    
+    // Divide o textão em vários blocos toda vez que encontrar um espaço em branco (parágrafo)
+    const blocos = texto.split(/\n\s*\n/);
+    
+    for (let i = 0; i < blocos.length; i++) {
+        const bloco = blocos[i].trim();
+        
+        if (bloco) {
+            try {
+                await axios.post(url, { 
+                    messaging_product: 'whatsapp', 
+                    to: para, 
+                    type: 'text', 
+                    text: { body: bloco } 
+                }, { 
+                    headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}` } 
+                });
+                
+                // Se ainda houver mais mensagens na fila, dá uma pausa de 1,5 segundos para simular digitação humana
+                if (i < blocos.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                }
+            } catch (error) { 
+                console.error('Erro ao enviar:', error.message); 
+            }
+        }
+    }
 }
-
 async function enviarTemplateLead(para, nome, linkImovel) {
     const url = `https://graph.facebook.com/v25.0/1110417002164010/messages`;
     const payload = {
