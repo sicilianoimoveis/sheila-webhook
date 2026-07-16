@@ -4,7 +4,7 @@ const axios = require('axios');
 const xml2js = require('xml2js');
 const fs = require('fs'); 
 const path = require('path');
-const FormData = require('form-data'); // NOVO: Necessário para enviar o áudio para a OpenAI
+const FormData = require('form-data'); // Adicionado para transcrição de áudio
 
 const basicAuth = (req, res, next) => {
     const auth = { login: "thiagosheila", password: "Ts@171412" }; 
@@ -120,34 +120,12 @@ const obterPrecosFormatados = (imovel) => {
 // --- FUNÇÕES DE ENVIO E TRANSCRIÇÃO ---
 async function enviarMensagem(para, texto) {
     const url = `https://graph.facebook.com/v25.0/1110417002164010/messages`;
-    
-    // Divide o textão em vários blocos toda vez que encontrar um espaço em branco (parágrafo)
-    const blocos = texto.split(/\n\s*\n/);
-    
-    for (let i = 0; i < blocos.length; i++) {
-        const bloco = blocos[i].trim();
-        
-        if (bloco) {
-            try {
-                await axios.post(url, { 
-                    messaging_product: 'whatsapp', 
-                    to: para, 
-                    type: 'text', 
-                    text: { body: bloco } 
-                }, { 
-                    headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}` } 
-                });
-                
-                // Se ainda houver mais mensagens na fila, dá uma pausa de 1,5 segundos para simular digitação humana
-                if (i < blocos.length - 1) {
-                    await new Promise(resolve => setTimeout(resolve, 1500));
-                }
-            } catch (error) { 
-                console.error('Erro ao enviar:', error.message); 
-            }
-        }
-    }
+    try {
+        await axios.post(url, { messaging_product: 'whatsapp', to: para, type: 'text', text: { body: texto } },
+        { headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}` } });
+    } catch (error) { console.error('Erro ao enviar:', error.message); }
 }
+
 async function enviarTemplateLead(para, nome, linkImovel) {
     const url = `https://graph.facebook.com/v25.0/1110417002164010/messages`;
     const payload = {
@@ -456,16 +434,7 @@ app.post('/webhook', async (req, res) => {
 
         const response = await axios.post(url, payloadInicial);
         const contentResponse = response.data?.candidates?.[0]?.content;
-        
-        // CORREÇÃO: Varre toda a resposta da IA garantindo que ela não "esqueça" o comando de busca
-        const functionCall = contentResponse?.parts?.find(p => p.functionCall)?.functionCall;
-
-        // Se a IA mandou um texto ANTES da função (ex: "Vou olhar o sistema..."), enviamos esse texto pro cliente aguardar
-        const textoIntro = contentResponse?.parts?.find(p => p.text)?.text;
-        if (functionCall && textoIntro) {
-            await enviarMensagem(sender, textoIntro);
-            conversa.push({ "role": "model", "parts": [{ "text": textoIntro }] });
-        }
+        const functionCall = contentResponse?.parts?.[0]?.functionCall;
 
         if (functionCall) {
             console.log("LOG_DEBUG: A Sheila chamou a função:", functionCall.name);
@@ -652,8 +621,7 @@ app.post('/webhook', async (req, res) => {
                 }
             }
         } else {
-            // CORREÇÃO: Pega todo o texto gerado caso ela responda em múltiplos blocos
-            const textoRespostaPura = contentResponse?.parts?.filter(p => p.text).map(p => p.text).join('\n\n');
+            const textoRespostaPura = contentResponse?.parts?.[0]?.text;
             if (textoRespostaPura) {
                 await enviarMensagem(sender, textoRespostaPura);
                 conversa.push({ "role": "model", "parts": [{ "text": textoRespostaPura }] });
