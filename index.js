@@ -31,18 +31,21 @@ const ORIGENS = {
     "lead4sales": "7333"
 };
 
+// Traduz o nome que vem do CRM para a chave da Sheila
 function traduzirOrigem(nomePortal) {
     if (!nomePortal) return "whatsapp_direto";
+    
+    // Converte tudo para minúsculo e tira acentos para evitar erros
     const texto = String(nomePortal).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     
-    if (texto.includes("viva real") || texto.includes("vivareal")) return "vivareal"; 
-    if (texto.includes("imovelweb") || texto.includes("imovel web")) return "imovelweb"; 
-    if (texto.includes("chaves")) return "chaves_na_mao"; 
-    if (texto.includes("zap")) return "zap"; 
-    if (texto.includes("instagram")) return "instagram"; 
-    if (texto.includes("lead4sales")) return "lead4sales"; 
+    if (texto.includes("viva real") || texto.includes("vivareal")) return "vivareal"; // Vai retornar 7331
+    if (texto.includes("imovelweb") || texto.includes("imovel web")) return "imovelweb"; // Vai retornar 7329
+    if (texto.includes("chaves")) return "chaves_na_mao"; // Vai retornar 7330
+    if (texto.includes("zap")) return "zap"; // Vai retornar 7332
+    if (texto.includes("instagram")) return "instagram"; // Vai retornar 7328
+    if (texto.includes("lead4sales")) return "lead4sales"; // Vai retornar 7333
     
-    return "whatsapp_direto"; 
+    return "whatsapp_direto"; // Padrão se não achar nada
 }
 
 // --- GERENCIAMENTO XML ---
@@ -117,7 +120,7 @@ const obterPrecosFormatados = (imovel) => {
     return { venda: pVendaStr, locacao: pLocacaoStr, condominio: condoStr, iptu: iptuStr, pVenda, pLocacao };
 };
 
-// --- FUNÇÕES DE ENVIO E TRANSCRIÇÃO ---
+// --- FUNÇÕES DE ENVIO ---
 async function enviarMensagem(para, texto) {
     const url = `https://graph.facebook.com/v25.0/1110417002164010/messages`;
     try {
@@ -245,29 +248,34 @@ function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId 
     fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
 }
 
-// --- FUNÇÃO CENTRALIZADA DE ENVIO PARA O CRM VIA WEBHOOK ---
+// --- NOVO: FUNÇÃO CENTRALIZADA DE ENVIO PARA O CRM VIA WEBHOOK ---
 async function enviarLeadParaCRM(sender, contexto) {
     const lead = leadsIndex[sender];
     if (!lead) return;
 
+    // 1. Converte a intenção para os padrões do CRM
     let purposeStr = "sale"; 
     if (contexto.interesse && contexto.interesse.toLowerCase().includes('loca')) {
         purposeStr = "rent";
     }
 
+    // 2. Resgata o último imóvel que o lead demonstrou interesse
     let buildingId = null;
     if (lead.imoveisInteresse && lead.imoveisInteresse.length > 0) {
         buildingId = lead.imoveisInteresse[lead.imoveisInteresse.length - 1]; 
     }
 
+    // 3. Traduz a origem atual do lead para o código numérico
     const codigoOrigem = parseInt(ORIGENS[lead.origem] || ORIGENS["whatsapp_direto"]);
 
+    // 4. Monta o Payload. (Enviando os campos antigos e novos simultaneamente para evitar quebra de integração)
     const payload = {
         nome: lead.nome || "Cliente",
         celular: sender,
         origem: codigoOrigem,
         mensagem: contexto.mensagem || "Atendimento realizado pela Sheila",
         observacoes: contexto.observacoes || "",
+        // Campos estruturados
         name: lead.nome || "Cliente",
         phone: sender,
         purpose: purposeStr,
@@ -373,7 +381,7 @@ app.post('/webhook', async (req, res) => {
     // Se não for nem texto nem áudio, ou se estiver vazio, encerra a requisição
     if (!textoCliente) return res.sendStatus(200);
 
-    const conversa = obterHistorico(sender);
+   const conversa = obterHistorico(sender);
     const referral = msgData?.referral?.source_url;
 
     try {
@@ -465,6 +473,7 @@ app.post('/webhook', async (req, res) => {
                 const nomeDoCliente = functionCall.args.nome || "Cliente";
                 const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
                 
+                // Salva o nome e envia para a central via nova função unificada
                 atualizarIndiceLeads(sender, nomeDoCliente);
                 
                 await enviarLeadParaCRM(sender, {
@@ -662,6 +671,7 @@ app.post('/webhook-lead', async (req, res) => {
         await enviarTemplateLead(celular, name, link);
         salvarHistorico(celular, conversa); 
         
+        // NOVO: Usando o tradutor de origens que garante a normalização do texto
         const origemTraduzida = traduzirOrigem(origin_desc?.name);
         atualizarIndiceLeads(celular, name, origemTraduzida, false, building_id);
         
@@ -687,8 +697,9 @@ app.post('/enviar-crm/:sender', async (req, res) => {
     try {
         const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
         
+        // Chamada atualizada com a função unificada
         await enviarLeadParaCRM(sender, {
-            interesse: "venda", 
+            interesse: "venda", // Genérico para manual
             mensagem: "Envio manual via Central de Leads",
             observacoes: `Lead enviado manualmente.\nLink da conversa: ${linkEspelho}`
         });
@@ -725,8 +736,9 @@ setInterval(monitorarLeads, 1800000);
 
 async function forcarEnvioCRM(sender, obs) {
     const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
+    // Chamada atualizada com a função unificada
     await enviarLeadParaCRM(sender, {
-        interesse: "venda", 
+        interesse: "venda", // Genérico de timeout
         mensagem: "Encaminhamento automático",
         observacoes: `Sheila: ${obs}\nLink da conversa: ${linkEspelho}`
     });
