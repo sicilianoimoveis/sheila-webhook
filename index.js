@@ -46,6 +46,63 @@ async function atualizarBaseImoveis() {
 atualizarBaseImoveis();
 setInterval(atualizarBaseImoveis, 86400000);
 
+// --- FUNÇÕES AUXILIARES DE EXTRAÇÃO XML ---
+const v = (campo) => {
+    if (campo === null || campo === undefined) return '';
+    if (Array.isArray(campo)) campo = campo[0];
+    if (typeof campo === 'object') {
+        return campo._ !== undefined ? String(campo._).trim() : '';
+    }
+    return String(campo).trim();
+};
+
+// NOVO: Extrai endereço ignorando NÚMERO e COMPLEMENTO por segurança
+const obterEnderecoSeguro = (imovel) => {
+    const loc = imovel?.Location;
+    if (!loc) return "Não informado";
+    
+    const rua = v(loc.Address);
+    const bairro = v(loc.Neighborhood);
+    const cidade = v(loc.City);
+    
+    let parts = [];
+    if (rua) parts.push(rua);
+    if (bairro) parts.push(bairro);
+    if (cidade) parts.push(cidade);
+    
+    return parts.length > 0 ? parts.join(' - ') : "Não informado";
+};
+
+const obterFeatures = (imovel) => {
+    const featObj = imovel?.Details?.Features?.Feature;
+    if (!featObj) return "Nenhuma cadastrada";
+    
+    const extrairTexto = (item) => {
+        if (!item) return '';
+        if (typeof item === 'object') return item._ !== undefined ? String(item._).trim() : '';
+        return String(item).trim();
+    };
+
+    if (Array.isArray(featObj)) {
+        return featObj.map(extrairTexto).filter(Boolean).join(', ');
+    }
+    return extrairTexto(featObj);
+};
+
+const obterPrecosFormatados = (imovel) => {
+    const pVenda = parseFloat(v(imovel?.Details?.ListPrice)) || 0;
+    const pLocacao = parseFloat(v(imovel?.Details?.RentalPrice)) || 0;
+    const condo = parseFloat(v(imovel?.Details?.PropertyAdministrationFee)) || 0;
+    const iptu = parseFloat(v(imovel?.Details?.YearlyTax)) || 0;
+    
+    let pVendaStr = pVenda > 0 ? `R$ ${pVenda.toLocaleString('pt-BR')}` : 'Não disponível';
+    let pLocacaoStr = pLocacao > 0 ? `R$ ${pLocacao.toLocaleString('pt-BR')}` : 'Não disponível';
+    let condoStr = condo > 0 ? `R$ ${condo.toLocaleString('pt-BR')}` : 'Não informado';
+    let iptuStr = iptu > 0 ? `R$ ${iptu.toLocaleString('pt-BR')}` : 'Não informado';
+    
+    return { venda: pVendaStr, locacao: pLocacaoStr, condominio: condoStr, iptu: iptuStr, pVenda, pLocacao };
+};
+
 // --- FUNÇÕES DE ENVIO ---
 async function enviarMensagem(para, texto) {
     const url = `https://graph.facebook.com/v25.0/1110417002164010/messages`;
@@ -79,14 +136,12 @@ async function enviarTemplateReengajamento(para, nome) {
         template: {
             name: "rengajamento",
             language: { code: "pt_BR" },
-            components: [{ 
-                type: "body", 
-                parameters: [{ type: "text", text: nome }]
-            }]
+            components: [{ type: "body", parameters: [{ type: "text", text: nome }] }]
         }
     };
     await axios.post(url, payload, { headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}` } });
 }
+
 // --- CONTROLE DE DADOS ---
 const FILE_PATH = '/app/dados/historico.json';
 const LEADS_INDEX_PATH = '/app/dados/leads_index.json';
@@ -95,8 +150,6 @@ let leadsIndex = {};
 
 function obterHistorico(sender) {
     if (!historicos[sender]) return [];
-    
-    // Retorna sempre no formato que o Gemini espera: { role, parts: [{ text }] }
     return historicos[sender].map(m => ({
         role: m.role,
         parts: Array.isArray(m.parts) ? m.parts : [{ text: m.text || "" }]
@@ -104,12 +157,7 @@ function obterHistorico(sender) {
 }
 
 function salvarHistorico(sender, conversa) {
-    // Converte para o formato simples para salvar no JSON (mais leve)
-    historicos[sender] = conversa.map(m => ({
-        role: m.role,
-        parts: m.parts // Mantém a estrutura de array do Gemini
-    }));
-
+    historicos[sender] = conversa.map(m => ({ role: m.role, parts: m.parts }));
     fs.writeFileSync(FILE_PATH, JSON.stringify(historicos, null, 2));
 }
 
@@ -130,26 +178,17 @@ function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId 
         enviadoParaCRM: statusCRM || leadsIndex[sender]?.enviadoParaCRM || false
     };
     fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
-    }
+}
 
 // --- ROTAS ---
 app.get('/limpar-historico/:sender', async (req, res) => {
     const { sender } = req.params;
-
     if (historicos[sender]) {
-        // 1. Limpa o histórico apenas do número específico na memória
         historicos[sender] = [];
-
         try {
-            // 2. Grava o JSON completo atualizado no arquivo
             await fs.promises.writeFile(FILE_PATH, JSON.stringify(historicos, null, 2));
-            
-            console.log(`LOG_DEBUG: Histórico do cliente ${sender} limpo com sucesso.`);
             res.send(`Histórico de ${sender} limpo.`);
-        } catch (err) {
-            console.error(`ERRO: Falha ao salvar limpeza para ${sender}:`, err);
-            res.status(500).send("Erro ao salvar arquivo.");
-        }
+        } catch (err) { res.status(500).send("Erro ao salvar arquivo."); }
     } else {
         res.status(404).send("Cliente não encontrado.");
     }
@@ -162,25 +201,25 @@ app.get('/chat/:sender', (req, res) => {
 
     const leadInfo = leadsIndex[sender] || { nome: "Lead Sem Nome" };
     const nomeLead = leadInfo.nome;
-
-    // Pegamos a lista simples {role, text}
     const conversa = historicos[sender] || [];
 
-    // Filtramos usando m.text, que é como agora está salvo no JSON
-    const mensagensFiltradas = conversa.filter(m => 
-        m.text && 
-        !m.text.includes("CONSULTA DE IMÓVEL") && 
-        !m.text.includes("O nome deste cliente é")
-    );
+    const mensagensFiltradas = conversa.filter(m => {
+        const txt = m.parts && m.parts[0] ? m.parts[0].text : (m.text || "");
+        return txt && !txt.includes("DADOS TÉCNICOS PARA CONSULTA") && !txt.includes("O nome deste cliente é");
+    });
 
     let html = `<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>body{font-family:sans-serif;background:#e5ddd5;margin:0;padding:0;}.header{background:#fff;padding:20px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.1);}.header img{width:80px;height:auto;margin-bottom:10px;}.lead-info{background:#fff;padding:15px;text-align:center;margin-bottom:10px;}.msg{padding:10px 15px;margin:5px 10px;border-radius:8px;max-width:85%;position:relative;font-size:14px;word-wrap:break-word;}.user{background:#dcf8c6;margin-left:auto;text-align:right;}.model{background:#ffffff;margin-right:auto;}.time{font-size:10px;color:#999;margin-top:5px;display:block;}</style></head><body>
     <div class="header"><img src="https://img.apre.me/M7UtVktPLcjSy00sSk8sKc7LVMhPz8-RL07NyUyzzVSztDQwtU0GAA.jpeg" alt="Logo"><div style="font-weight:bold; color:#333;">Atendido pela Sheila</div></div>
     <div class="lead-info"><strong>Cliente:</strong> ${nomeLead}<br><small>${sender}</small><br><a href="https://wa.me/${sender}" style="color:#075e54;">Enviar WhatsApp</a></div>
-    ${mensagensFiltradas.map(m => `<div class="msg ${m.role}">${m.text}<span class="time">${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit'})}</span></div>`).join('')}</body></html>`;
+    ${mensagensFiltradas.map(m => {
+        const text = m.parts && m.parts[0] ? m.parts[0].text : (m.text || "");
+        return `<div class="msg ${m.role}">${text}<span class="time">${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit'})}</span></div>`;
+    }).join('')}</body></html>`;
 
     res.send(html);
 });
+
 app.get('/leads', (req, res) => {
     if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) return res.status(403).send("Acesso negado.");
     res.json(Object.values(leadsIndex).sort((a, b) => new Date(b.ultimaInteracao) - new Date(a.ultimaInteracao)));
@@ -188,7 +227,6 @@ app.get('/leads', (req, res) => {
 
 app.post('/webhook', async (req, res) => {
    if (process.env.SHEILA_PAUSADA === 'true') {
-        console.log("LOG_DEBUG: Sheila pausada pela variável de ambiente.");
         return res.sendStatus(200); 
     }    
     
@@ -196,17 +234,11 @@ app.post('/webhook', async (req, res) => {
     if (!msgData) return res.sendStatus(200);
     
     const sender = msgData.from;
-    
-    // --- LÓGICA DE DEFINIÇÃO DO NOME ---
     const nomeMeta = req.body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile?.name;
     const nomeAtual = leadsIndex[sender]?.nome;
-
-    // Prioridade: 1º Nome que já temos, 2º Nome da Meta, 3º "Cliente"
     const nomeParaSalvar = (nomeAtual && nomeAtual !== "Lead Sem Nome") ? nomeAtual : (nomeMeta || "Cliente");
 
-    // Atualiza o índice com o nome decidido
     atualizarIndiceLeads(sender, nomeParaSalvar, "WhatsApp");
-    // --- FIM DA LÓGICA ---
 
     const textoCliente = msgData.text?.body;
     const conversa = obterHistorico(sender);
@@ -236,7 +268,7 @@ app.post('/webhook', async (req, res) => {
                 },
                 { 
                     "name": "buscar_imovel", 
-                    "description": "Consulta dados técnicos (rua, suites, vagas, features) pelo código ou URL.", 
+                    "description": "Consulta dados técnicos completos de um imóvel (valores de venda/locação, rua sem número, suites, vagas, features) pelo código ou URL.", 
                     "parameters": { "type": "object", "properties": { "termo_de_busca": { "type": "string" } }, "required": ["termo_de_busca"] } 
                 },
                 {
@@ -245,27 +277,17 @@ app.post('/webhook', async (req, res) => {
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "intencao": { 
-                                "type": "string", 
-                                "description": "A intenção do cliente: use exatamente 'compra' ou 'aluguel'." 
-                            },
-                            "tipo": { 
-                                "type": "string", 
-                                "description": "O tipo do imóvel: 'apartamento', 'cobertura', 'casa', 'studio', 'sala comercial', 'casa em condominio', 'loja', 'imovel comercial' ou 'predio comercial'." 
-                            },
+                            "intencao": { "type": "string", "description": "A intenção do cliente: use exatamente 'compra' ou 'aluguel'." },
+                            "tipo": { "type": "string", "description": "O tipo do imóvel: 'apartamento', 'cobertura', etc." },
                             "bairro": { "type": "string", "description": "O bairro de preferência do cliente." },
                             "quartos": { "type": "number", "description": "Número mínimo de quartos desejado." },
                             "vaga": { 
-    "type": "integer", 
-    "description": "Quantidade de vagas desejada. Se o cliente disser 'com vaga' ou 'quero vaga', envie 1. Se disser um número (ex: '2 vagas'), envie esse número. Caso o cliente não mencione vagas, NÃO envie este campo." 
-},
+                                "type": "integer", 
+                                "description": "Quantidade de vagas. Se o cliente apenas disser 'quero com vaga', envie 1. Se definir quantidade (ex: 2), envie o número exato. Se não mencionar, não envie este campo." 
+                            },
                             "precoVendaMax": { "type": "number", "description": "Valor máximo para compra." },
-"precoLocacaoMax": { "type": "number", "description": "Valor máximo para aluguel." },
-                            "extras": { 
-                                "type": "array", 
-                                "items": { "type": "string" }, 
-                                "description": "Lista de características extras (ex: 'varanda', 'suíte', 'lazer completo')." 
-                            }
+                            "precoLocacaoMax": { "type": "number", "description": "Valor máximo para aluguel." },
+                            "extras": { "type": "array", "items": { "type": "string" }, "description": "Lista de características extras." }
                         },
                         "required": ["intencao"]
                     }
@@ -283,15 +305,10 @@ app.post('/webhook', async (req, res) => {
         const functionCall = contentResponse?.parts?.[0]?.functionCall;
 
         if (functionCall) {
-            console.log("LOG_DEBUG: A Sheila decidiu chamar a função:", functionCall.name);
-            console.log("LOG_DEBUG: Argumentos definidos pela Sheila:", JSON.stringify(functionCall.args));
-            console.log("LOG_DEBUG: Quantidade total de imóveis no cache:", cacheImoveis?.length || 0);
+            console.log("LOG_DEBUG: A Sheila chamou a função:", functionCall.name);
 
             if (functionCall.name === "iniciar_captacao") {
-                if (!leadsIndex[sender]) {
-                    atualizarIndiceLeads(sender, null, "WhatsApp"); 
-                }
-                
+                if (!leadsIndex[sender]) atualizarIndiceLeads(sender, null, "WhatsApp"); 
                 leadsIndex[sender].categoria = 'captacao';
                 leadsIndex[sender].ultimaInteracao = new Date().toISOString();
                 fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
@@ -303,7 +320,6 @@ app.post('/webhook', async (req, res) => {
             }
             else if (functionCall.name === "processar_captacao") {
                 const { endereco } = functionCall.args;
-                
                 leadsIndex[sender].categoria = 'processado'; 
                 leadsIndex[sender].ultimaInteracao = new Date().toISOString();
                 fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
@@ -311,7 +327,6 @@ app.post('/webhook', async (req, res) => {
                 const resposta = "Perfeito, anotei o endereço! Vou passar essas informações para nossa equipe de captação entrar em contato com você em breve.";
                 await enviarMensagem(sender, resposta);
                 conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
-                
                 salvarHistorico(sender, conversa);
             }      
             else if (functionCall.name === "qualificar_lead") {
@@ -330,153 +345,113 @@ app.post('/webhook', async (req, res) => {
 
                 atualizarIndiceLeads(sender, nomeDoCliente);
                 const msg = "Perfeito, acabei de encaminhar seu interesse para nossa equipe de corretores!";
-                
                 await enviarMensagem(sender, msg);
                 conversa.push({ "role": "model", "parts": [{ "text": msg }] });
                 salvarHistorico(sender, conversa); 
             } 
-           else if (functionCall.name === "buscar_imovel") {
+            else if (functionCall.name === "buscar_imovel") {
                 const termo = functionCall.args.termo_de_busca;
                 const imovel = cacheImoveis.find(i => String(i.ListingID) === String(termo) || (i.DetailViewUrl && i.DetailViewUrl.includes(termo)));
                 
                 if (imovel) {
                     atualizarIndiceLeads(sender, null, null, false, imovel.ListingID);
-                }
-                
-                const v = (campo) => (campo && typeof campo === 'object' ? campo._ : campo) || 'Não informado';
-                const feat = imovel?.Features?.Feature ? (Array.isArray(imovel.Features.Feature) ? imovel.Features.Feature.join(', ') : imovel.Features.Feature) : "Nenhuma característica extra informada.";
-                const enderecoReal = imovel && imovel.Location ? (Array.isArray(imovel.Location) ? imovel.Location[0].Address : imovel.Location.Address) : "Não informado";
-                
-                // --- NOVA LÓGICA DE PREÇOS (VENDA E LOCAÇÃO) ---
-                const precoV = v(imovel?.Details?.ListPrice);
-                const precoL = v(imovel?.Details?.RentalPrice);
-                
-                let precoDisplay = "";
-                if (precoL !== 'Não informado' && precoL !== "0" && precoV !== 'Não informado' && precoV !== "0") {
-                    precoDisplay = `Venda: R$ ${precoV} / Locação: R$ ${precoL}`;
-                } else if (precoL !== 'Não informado' && precoL !== "0") {
-                    precoDisplay = `Locação: R$ ${precoL}`;
-                } else {
-                    precoDisplay = `Venda: R$ ${precoV}`;
-                }
+                    const enderecoSeguro = obterEnderecoSeguro(imovel);
+                    const features = obterFeatures(imovel);
+                    const precos = obterPrecosFormatados(imovel);
+                    const desc = v(imovel.Details?.Description);
+                    
+                    // Texto corrido sem formatação de lista para respeitar o SYSTEM_PROMPT
+                    let dados = `DADOS TÉCNICOS PARA CONSULTA INTERNA: ID ${imovel.ListingID}, Título: ${imovel.Title}, Venda: ${precos.venda}, Locação: ${precos.locacao}, Condomínio: ${precos.condominio}, IPTU: ${precos.iptu}, Endereço permitido (NÃO informe número/complemento): ${enderecoSeguro}, Quartos: ${v(imovel.Details?.Bedrooms)}, Suítes: ${v(imovel.Details?.Suites)}, Vagas: ${v(imovel.Details?.Garage)}, Extras: ${features}, Descrição: ${desc}. Link: ${imovel.DetailViewUrl}. Lembre-se: aplique rigorosamente as diretrizes do seu SYSTEM PROMPT ao responder (resumo curto, texto corrido, sem listas).`;
 
-                let dados = imovel ? `ID: ${imovel.ListingID}, Preços: ${precoDisplay}, Rua: ${v(enderecoReal)}, Suítes: ${v(imovel.Details?.Suites)}, Vagas: ${v(imovel.Details?.Garage)}, Bairro: ${v(imovel.Location?.Neighborhood)}, Features: ${feat}, Descrição: ${v(imovel.Details?.Description)}` : "Imóvel não localizado.";
-                
-                conversa.push({ "role": "user", "parts": [{ "text": `CONSULTA DE IMÓVEL: ${dados}. USE APENAS ESTAS INFORMAÇÕES TÉCNICAS. NÃO INVENTE DADOS.` }] });
+                    conversa.push({ "role": "user", "parts": [{ "text": dados }] });
+                } else {
+                    conversa.push({ "role": "user", "parts": [{ "text": `CONSULTA DE IMÓVEL: O imóvel "${termo}" não foi localizado no catálogo.` }] });
+                }
                 
                 const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
                 const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-                
                 if (texto) { 
                     await enviarMensagem(sender, texto); 
                     conversa.push({ "role": "model", "parts": [{ "text": texto }] });
                     salvarHistorico(sender, conversa); 
                 }
-            }
-          else if (functionCall.name === "buscar_imoveis_filtros") {
-    console.log("Filtros recebidos:", functionCall.args);
-    
-    const normalize = (str) => {
-        if (!str) return "";
-        return String(str).toLowerCase()
-            .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-            .replace(/[-\s]/g, "");
-    };
+            } 
+            else if (functionCall.name === "buscar_imoveis_filtros") {
+                const normalize = (str) => {
+                    if (!str) return "";
+                    return String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[-\s]/g, "");
+                };
 
-    const mapaTipos = {
-        "apartamento": "residential/apartment",
-        "cobertura": "residential/penthouse",
-        "casa": "residential/home",
-        "studio": "residential/flat",
-        "sala comercial": "commercial/office",
-        "casa em condominio": "residential/condo",
-        "loja": "commercial/loja",
-        "imovel comercial": "commercial/business",
-        "predio comercial": "commercial/business"
-    };
+                const mapaTipos = {
+                    "apartamento": "residential/apartment", "cobertura": "residential/penthouse",
+                    "casa": "residential/home", "studio": "residential/flat",
+                    "sala comercial": "commercial/office", "casa em condominio": "residential/condo",
+                    "loja": "commercial/loja", "imovel comercial": "commercial/business",
+                    "predio comercial": "commercial/business"
+                };
 
-    const mapaIntencao = {
-        "compra": "forsale",
-        "venda": "forsale",
-        "aluguel": "forrent",
-        "locacao": "forrent"
-    };
+                const mapaIntencao = {
+                    "compra": "forsale", "venda": "forsale", "aluguel": "forrent", "locacao": "forrent"
+                };
 
-    console.log("LOG_DEBUG: Entrou na função buscar_imoveis_filtros");
-    const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
-    const nVagasPedido = parseInt(vaga) || 0;
-    const buscaIntencao = normalize(intencao || "");
-    const isVenda = buscaIntencao.includes("compra") || buscaIntencao.includes("venda") || buscaIntencao.includes("sale");
-    const isLocacao = buscaIntencao.includes("aluguel") || buscaIntencao.includes("locacao") || buscaIntencao.includes("rent");
-    
-    const filtra = (i, modoExato) => {
-        const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
-        
-        const bairroImovel = normalize(v(i.Location?.Neighborhood));
-        const tipoImovelXML = normalize(v(i.Details?.PropertyType));
-        const transacaoXML = normalize(v(i.TransactionType));
-        const descricao = normalize(v(i.Details?.Description));
-        const pV = parseFloat(v(i.Details?.ListPrice)) || 0;
-        const pL = parseFloat(v(i.Details?.RentalPrice)) || 0;
-        const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
+                const { intencao, bairro, quartos, precoVendaMax, precoLocacaoMax, tipo, vaga, extras } = functionCall.args;
+                const precoMax = precoVendaMax || precoLocacaoMax || 0;
+                
+                // Trata a vaga recebida corretamente (seja 1 conceptual ou quantidade exata)
+                const nVagasPedido = parseInt(vaga);
+                const buscaIntencao = normalize(intencao || "");
+                const isVenda = buscaIntencao.includes("compra") || buscaIntencao.includes("venda") || buscaIntencao.includes("sale");
+                const isLocacao = buscaIntencao.includes("aluguel") || buscaIntencao.includes("locacao") || buscaIntencao.includes("rent");
+                
+                const filtra = (i, modoExato) => {
+                    const bairroImovel = normalize(v(i.Location?.Neighborhood));
+                    const tipoImovelXML = normalize(v(i.Details?.PropertyType));
+                    const transacaoXML = normalize(v(i.TransactionType));
+                    const descricao = normalize(v(i.Details?.Description));
+                    const pV = parseFloat(v(i.Details?.ListPrice)) || 0;
+                    const pL = parseFloat(v(i.Details?.RentalPrice)) || 0;
+                    const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
 
-        const nIntencaoBusca = mapaIntencao[normalize(intencao)] || normalize(intencao);
-        const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
+                    const nIntencaoBusca = mapaIntencao[normalize(intencao)] || normalize(intencao);
+                    const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
 
-        const matchBairro = !bairro || bairroImovel.includes(normalize(bairro));
-        const matchIntencao = !intencao || 
-            (isVenda && transacaoXML.includes("sale")) || 
-            (isLocacao && transacaoXML.includes("rent"));
-            
-        const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
-        
-        let matchPreco = true;
-        if (precoMax > 0) {
-            if (isVenda) {
-                matchPreco = (pV > 0 && pV <= precoMax);
-            } else if (isLocacao) {
-                matchPreco = (pL > 0 && pL <= precoMax);
-            }
-        }
+                    const matchBairro = !bairro || bairroImovel.includes(normalize(bairro));
+                    const matchIntencao = !intencao || (isVenda && transacaoXML.includes("sale")) || (isLocacao && transacaoXML.includes("rent"));
+                    const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
+                    
+                    let matchPreco = true;
+                    if (precoMax > 0) {
+                        if (isVenda) matchPreco = (pV > 0 && pV <= precoMax);
+                        else if (isLocacao) matchPreco = (pL > 0 && pL <= precoMax);
+                    }
 
-        const nVagasXML = parseInt(v(i.Details?.Garage)) || 0;
-        const matchVaga = !vagaNum || (modoExato ? (nVagasXML === vagaNum) : (nVagasXML >= vagaNum));
-        const matchQuartos = !quartos || (modoExato ? (qteQuartos === quartos) : (qteQuartos >= quartos));
+                    const nVagasXML = parseInt(v(i.Details?.Garage)) || 0;
+                    // Se nVagasPedido for NaN (undefined ou invalido), a condição é true (ignora filtro)
+                    const matchVaga = isNaN(nVagasPedido) ? true : (modoExato ? (nVagasXML === nVagasPedido) : (nVagasXML >= nVagasPedido));
+                    const matchQuartos = !quartos || (modoExato ? (qteQuartos === quartos) : (qteQuartos >= quartos));
 
-        const features = Array.isArray(i.Details?.Features?.Feature) 
-            ? i.Details.Features.Feature.map(f => normalize(f)).join(' ') 
-            : normalize(v(i.Details?.Features?.Feature));
-            
-        const matchExtras = !extras || extras.every(extra => 
-            descricao.includes(normalize(extra)) || features.includes(normalize(extra))
-        );
-        
-        return matchBairro && matchIntencao && matchTipo && matchQuartos && matchPreco && matchVaga && matchExtras;
-    };
-    
-const vagaNum = (typeof vaga === 'boolean') ? (vaga ? 1 : 0) : parseInt(vaga);
-
+                    const features = Array.isArray(i.Details?.Features?.Feature) 
+                        ? i.Details.Features.Feature.map(f => normalize(f)).join(' ') 
+                        : normalize(v(i.Details?.Features?.Feature));
+                        
+                    const matchExtras = !extras || extras.every(extra => descricao.includes(normalize(extra)) || features.includes(normalize(extra)));
+                    
+                    return matchBairro && matchIntencao && matchTipo && matchQuartos && matchPreco && matchVaga && matchExtras;
+                };
+                
                 let resultados = cacheImoveis.filter(i => filtra(i, true));
-
-                if (resultados.length === 0) {
-    resultados = cacheImoveis.filter(i => filtra(i, false));
-}
-
+                if (resultados.length === 0) resultados = cacheImoveis.filter(i => filtra(i, false));
                 resultados = resultados.slice(0, 3);
-                console.log("LOG_DEBUG: Imóveis encontrados após filtro:", resultados.length);
 
                 if (resultados.length > 0) {
                     await enviarMensagem(sender, "Encontrei estas opções para você:");
                     
                     for (const i of resultados) {
-                        const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
-    const precoV = v(i.Details?.ListPrice) || "0";
-    const precoL = v(i.Details?.RentalPrice) || "0";
-                        
-                        const dados = `Título: ${i.Title}, Descrição: ${i.Details?.Description}, Preço Venda: R$ ${precoV}, Preço Locação: R$ ${precoL}, Link: ${i.DetailViewUrl}`;
+                        const precos = obterPrecosFormatados(i);
+                        const dados = `Título: ${i.Title}, Descrição: ${v(i.Details?.Description)}, Preço Venda: ${precos.venda}, Preço Locação: ${precos.locacao}, Link: ${i.DetailViewUrl}`;
                         const payloadLocal = [...conversa, { 
                             "role": "user", 
-                            "parts": [{ "text": `Apresente este imóvel: ${dados}. Use a DIRETRIZ DE APRESENTAÇÃO.` }] 
+                            "parts": [{ "text": `Apresente este imóvel: ${dados}. Respeite rigorosamente as regras do seu SYSTEM PROMPT para apresentação de imóveis.` }] 
                         }];
 
                         try {
@@ -488,26 +463,17 @@ const vagaNum = (typeof vaga === 'boolean') ? (vaga ? 1 : 0) : parseInt(vaga);
                             if (texto) {
                                 await enviarMensagem(sender, texto);
                                 conversa.push({ "role": "model", "parts": [{ "text": texto }] });
-                          } else {
-                            // Define o preço de forma simples: se tiver aluguel, usa ele; senão, usa venda.
-                            const precoV = i.Details?.ListPrice?._ || i.Details?.ListPrice || "0";
-                            const precoL = i.Details?.RentalPrice?._ || i.Details?.RentalPrice || "0";
-                            const precoDisplay = (precoL !== "0" && precoL !== "Não informado") ? `R$ ${precoL} (Locação)` : `R$ ${precoV} (Venda)`;
-                            
+                            } else {
+                                const precoDisplay = (precos.pLocacao > 0) ? `${precos.locacao} (Locação)` : `${precos.venda} (Venda)`;
+                                await enviarMensagem(sender, `*${i.Title}*\n💰 ${precoDisplay}\n🔗 ${i.DetailViewUrl}`);
+                            }
+                        } catch (e) {
+                            const precoDisplay = (precos.pLocacao > 0) ? `${precos.locacao} (Locação)` : `${precos.venda} (Venda)`;
                             await enviarMensagem(sender, `*${i.Title}*\n💰 ${precoDisplay}\n🔗 ${i.DetailViewUrl}`);
                         }
-                    } catch (e) {
-                        console.error("Erro na chamada da IA:", e);
-                        // Repete a mesma lógica de preço no catch para garantir que a mensagem saia
-                        const precoV = i.Details?.ListPrice?._ || i.Details?.ListPrice || "0";
-                        const precoL = i.Details?.RentalPrice?._ || i.Details?.RentalPrice || "0";
-                        const precoDisplay = (precoL !== "0" && precoL !== "Não informado") ? `R$ ${precoL} (Locação)` : `R$ ${precoV} (Venda)`;
-                        
-                        await enviarMensagem(sender, `*${i.Title}*\n💰 ${precoDisplay}\n🔗 ${i.DetailViewUrl}`);
+                        await new Promise(resolve => setTimeout(resolve, 1000));
                     }
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                }
-                salvarHistorico(sender, conversa);
+                    salvarHistorico(sender, conversa);
                 } else {
                     const msg = "Não encontrei imóveis com essas características agora. Gostaria que eu passasse seu contato para o nosso corretor buscar algo personalizado?";
                     await enviarMensagem(sender, msg);
@@ -515,25 +481,14 @@ const vagaNum = (typeof vaga === 'boolean') ? (vaga ? 1 : 0) : parseInt(vaga);
                     salvarHistorico(sender, conversa);
                 }
             }
-
         } else {
-            // --- CORREÇÃO DO FLUXO DE TEXTO PURO (FALLBACK / ELSE IF CONTENT) ---
             const textoRespostaPura = contentResponse?.parts?.[0]?.text;
-            
             if (textoRespostaPura) {
-                console.log("LOG_DEBUG: Resposta puramente textual gerada pela Sheila.");
-                
-                // 1. Envia a mensagem de texto normal via WhatsApp
                 await enviarMensagem(sender, textoRespostaPura);
-                
-                // 2. Garante o alinhamento correto inserindo o modelo no histórico antes de salvar
                 conversa.push({ "role": "model", "parts": [{ "text": textoRespostaPura }] });
                 salvarHistorico(sender, conversa);
-            } else {
-                console.log("LOG_DEBUG: Resposta vazia recebida da API do Gemini.");
             }
         }
-
     } catch (error) { 
         console.error("Erro Webhook:", error.message); 
     }
@@ -548,37 +503,42 @@ app.post('/webhook-lead', async (req, res) => {
     try {
         const imovel = cacheImoveis.find(i => String(i.ListingID) === String(building_id));
         const link = imovel ? imovel.DetailViewUrl : "consulte em nosso site";
-        
         const conversa = obterHistorico(celular);
         
-        // Adiciona o contexto de forma estruturada
-        conversa.push({ role: "user", parts: [{ text: `O nome deste cliente é ${name}.` }] });
+        if (imovel) {
+            const enderecoSeguro = obterEnderecoSeguro(imovel);
+            const features = obterFeatures(imovel);
+            const precos = obterPrecosFormatados(imovel);
+            const desc = v(imovel.Details?.Description);
+            
+            // Texto corrido sem formatação e sem diretrizes adicionais para evitar conflitos
+            const contextoOculto = `DADOS TÉCNICOS PARA CONSULTA INTERNA DA SHEILA: O cliente ${name} quer informações deste imóvel. ID ${imovel.ListingID}, Venda: ${precos.venda}, Locação: ${precos.locacao}, Condomínio: ${precos.condominio}, IPTU: ${precos.iptu}, Endereço permitido (NÃO informe número/complemento, é proibido): ${enderecoSeguro}, Quartos: ${v(imovel.Details?.Bedrooms)}, Suítes: ${v(imovel.Details?.Suites)}, Vagas: ${v(imovel.Details?.Garage)}, Características Extras: ${features}, Descrição Completa: ${desc}. Lembre-se: aja estritamente de acordo com o seu SYSTEM PROMPT (sem usar listas, formato humanizado).`;
+            
+            conversa.push({ role: "user", parts: [{ text: contextoOculto }] });
+        } else {
+            conversa.push({ role: "user", parts: [{ text: `O nome deste cliente é ${name}. Ele se interessou no imóvel de ID ${building_id}, mas os dados não estão no cache.` }] });
+        }
+
         conversa.push({ role: "model", parts: [{ text: `Olá ${name}, recebemos sua solicitação para o imóvel: ${link}.` }] });
-        
         await enviarTemplateLead(celular, name, link);
-        
         salvarHistorico(celular, conversa); 
-        atualizarIndiceLeads(celular, name, origin_desc?.name);
+        atualizarIndiceLeads(celular, name, origin_desc?.name, false, building_id);
         
-        res.status(200).send("Lead processado");
-    } catch (error) { console.error("Erro lead:", error.message); res.status(500).send("Erro"); }
+        res.status(200).send("Lead processado com contexto seguro injetado.");
+    } catch (error) { res.status(500).send("Erro"); }
 });
 
 app.get('/central', basicAuth, (req, res) => {
     const caminhoHtml = path.join(__dirname, 'central.html');
     fs.readFile(caminhoHtml, 'utf8', (err, data) => {
-        if (err) {
-            console.error("Erro ao ler central.html em:", caminhoHtml, err);
-            return res.status(500).send("Erro ao carregar central: arquivo não encontrado.");
-        }
-        const htmlComToken = data.replace('SEU_TOKEN_AQUI', process.env.CHAT_ACCESS_TOKEN || '');
-        res.send(htmlComToken);
+        if (err) return res.status(500).send("Erro ao carregar central: arquivo não encontrado.");
+        res.send(data.replace('SEU_TOKEN_AQUI', process.env.CHAT_ACCESS_TOKEN || ''));
     });
 });
+
 app.post('/enviar-crm/:sender', async (req, res) => {
     const { sender } = req.params;
-    const { token } = req.query;
-    if (token !== process.env.CHAT_ACCESS_TOKEN) return res.status(403).send("Acesso negado.");
+    if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) return res.status(403).send("Acesso negado.");
 
     const lead = leadsIndex[sender];
     if (!lead) return res.status(404).send("Lead não encontrado.");
@@ -586,115 +546,65 @@ app.post('/enviar-crm/:sender', async (req, res) => {
     try {
         const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
         await axios.post('https://api.apresenta.me/webhook/integration/5099/ab72a9ac29cc5dba9a32eeb37f45461e', {
-            nome: lead.nome, 
-            celular: sender, 
-            origem: ORIGENS[lead.origem] || "5159", 
-            mensagem: "Envio manual via Central de Leads", 
-            observacoes: `Lead enviado manualmente.\nLink da conversa: ${linkEspelho}`
+            nome: lead.nome, celular: sender, origem: ORIGENS[lead.origem] || "5159", 
+            mensagem: "Envio manual via Central de Leads", observacoes: `Lead enviado manualmente.\nLink da conversa: ${linkEspelho}`
         });
 
-        // Atualiza o status
         lead.enviadoParaCRM = true;
         atualizarIndiceLeads(sender, lead.nome, lead.origem);
-
         res.status(200).send("Lead enviado com sucesso!");
-    } catch (error) {
-        console.error("Erro no envio manual:", error.message);
-        res.status(500).send("Erro ao enviar para CRM.");
-    }
+    } catch (error) { res.status(500).send("Erro ao enviar para CRM."); }
 });
-// --- MONITORAMENTO AUTOMÁTICO DE LEADS (CAPTAÇÃO E REENGAJAMENTO) ---
+
+// --- MONITORAMENTO AUTOMÁTICO DE LEADS ---
 async function monitorarLeads() {
     const agora = new Date();
-    
     for (const sender in leadsIndex) {
         const lead = leadsIndex[sender];
-        if (lead.enviadoParaCRM) continue; // Pula se já foi enviado
+        if (lead.enviadoParaCRM) continue; 
 
-        const ultimaInteracao = new Date(lead.ultimaInteracao);
-        const diffHoras = (agora - ultimaInteracao) / (1000 * 60 * 60);
+        const diffHoras = (agora - new Date(lead.ultimaInteracao)) / (1000 * 60 * 60);
 
-        // 1. Lógica de CAPTAÇÃO (Timeout de 2 horas sem endereço)
         if (lead.categoria === 'captacao' && diffHoras >= 2) {
-            console.log(`LOG_DEBUG: Timeout de captação para ${sender}. Encaminhando.`);
             await forcarEnvioCRM(sender, "Encaminhamento automático: Lead de captação não forneceu endereço em 2h.");
             continue;
         }
 
-        // 2. Lógica de REENGAJAMENTO (24 horas sem resposta do cliente)
         if (diffHoras >= 24) {
-        console.log(`LOG_DEBUG: Reengajando lead inativo via template: ${sender}`);
-        
-        // Pega o nome do lead no seu índice de leads para preencher o template
-        const nomeLead = leadsIndex[sender]?.nome || "cliente";
-        
-        // Chama o template oficial
-        await enviarTemplateReengajamento(sender, nomeLead);
-        
-        // Adiciona ao histórico o conteúdo exato do template
-        const msgReengajamento = `Oi ${nomeLead}! Notei que não tivemos retorno. Ainda tem interesse no imóvel ou precisa de ajuda com algo mais específico?`;
-        
-        const conversa = historicos[sender] || [];
-        conversa.push({ "role": "model", "parts": [{ "text": msgReengajamento }] });
-        salvarHistorico(sender, conversa);
-        
-        lead.ultimaInteracao = agora.toISOString(); 
-    }
+            const nomeLead = leadsIndex[sender]?.nome || "cliente";
+            await enviarTemplateReengajamento(sender, nomeLead);
+            const conversa = historicos[sender] || [];
+            conversa.push({ "role": "model", "parts": [{ "text": `Oi ${nomeLead}! Notei que não tivemos retorno. Ainda tem interesse no imóvel ou precisa de ajuda com algo mais específico?` }] });
+            salvarHistorico(sender, conversa);
+            lead.ultimaInteracao = agora.toISOString(); 
+        }
     }
 }
-
-// Executa a verificação a cada 30 minutos (1.800.000 ms)
 setInterval(monitorarLeads, 1800000);
 
-// Função auxiliar para forçar o envio ao CRM
 async function forcarEnvioCRM(sender, obs) {
     const lead = leadsIndex[sender];
     try {
-        const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
         await axios.post('https://api.apresenta.me/webhook/integration/5099/ab72a9ac29cc5dba9a32eeb37f45461e', {
-            nome: lead.nome || "Cliente",
-            celular: sender,
-            origem: ORIGENS[lead.origem] || "5159",
-            mensagem: "Encaminhamento automático",
-            observacoes: `Sheila: ${obs}\nLink da conversa: ${linkEspelho}`
+            nome: lead.nome || "Cliente", celular: sender, origem: ORIGENS[lead.origem] || "5159",
+            mensagem: "Encaminhamento automático", observacoes: `Sheila: ${obs}\nLink da conversa: https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`
         });
         lead.enviadoParaCRM = true;
         fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
-    } catch (err) {
-        console.error("Erro ao forçar envio ao CRM:", err.message);
-    }
+    } catch (err) {}
 }
 
-// --- INICIALIZAÇÃO BLINDADA E TOLERANTE A FALHAS ---
 const PORT = process.env.PORT || 8080;
-
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`LOG_DEBUG: Servidor online na porta ${PORT}`);
-
     const carregarDados = async () => {
         try {
             const dir = path.dirname(FILE_PATH);
-            if (!fs.existsSync(dir)) {
-                console.log("LOG_DEBUG: Diretório de dados não encontrado, criando...");
-                fs.mkdirSync(dir, { recursive: true });
-            }
-
-            if (fs.existsSync(FILE_PATH)) {
-                const data = await fs.promises.readFile(FILE_PATH, 'utf8');
-                historicos = JSON.parse(data);
-                console.log("LOG_DEBUG: historicos.json carregado.");
-            }
-
-            if (fs.existsSync(LEADS_INDEX_PATH)) {
-                const data = await fs.promises.readFile(LEADS_INDEX_PATH, 'utf8');
-                leadsIndex = JSON.parse(data);
-                console.log("LOG_DEBUG: leads_index.json carregado.");
-            }
-        } catch (e) {
-            console.error("LOG_DEBUG: Erro na carga dos dados (não fatal):", e.message);
-        }
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            if (fs.existsSync(FILE_PATH)) historicos = JSON.parse(await fs.promises.readFile(FILE_PATH, 'utf8'));
+            if (fs.existsSync(LEADS_INDEX_PATH)) leadsIndex = JSON.parse(await fs.promises.readFile(LEADS_INDEX_PATH, 'utf8'));
+        } catch (e) {}
     };
-
     carregarDados();
     setTimeout(carregarDados, 5000); 
 });
