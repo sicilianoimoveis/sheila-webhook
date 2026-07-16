@@ -412,27 +412,28 @@ app.post('/webhook', async (req, res) => {
                     "description": "Consulta dados técnicos completos de um imóvel (valores de venda/locação, rua sem número, suites, vagas, features) pelo código ou URL.", 
                     "parameters": { "type": "object", "properties": { "termo_de_busca": { "type": "string" } }, "required": ["termo_de_busca"] } 
                 },
-                {
-                    "name": "buscar_imoveis_filtros",
-                    "description": "Busca imóveis com filtros detalhados de intenção, bairro, tipo, orçamento e características.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "intencao": { "type": "string", "description": "A intenção do cliente: use exatamente 'compra' ou 'aluguel'." },
-                            "tipo": { "type": "string", "description": "O tipo do imóvel: 'apartamento', 'cobertura', etc." },
-                            "bairro": { "type": "string", "description": "O bairro de preferência do cliente." },
-                            "quartos": { "type": "number", "description": "Número mínimo de quartos desejado." },
-                            "vaga": { 
-                                "type": "integer", 
-                                "description": "Quantidade de vagas. Se o cliente apenas disser 'quero com vaga', envie 1. Se definir quantidade (ex: 2), envie o número exato. Se não mencionar, não envie este campo." 
-                            },
-                            "precoVendaMax": { "type": "number", "description": "Valor máximo para compra." },
-                            "precoLocacaoMax": { "type": "number", "description": "Valor máximo para aluguel." },
-                            "extras": { "type": "array", "items": { "type": "string" }, "description": "Lista de características extras." }
-                        },
-                        "required": ["intencao"]
-                    }
-                },
+               {
+    "name": "buscar_imoveis_filtros",
+    "description": "Busca imóveis com filtros detalhados de intenção, bairro, tipo, orçamento, rua e características.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "intencao": { "type": "string", "description": "A intenção do cliente: use exatamente 'compra' ou 'aluguel'." },
+            "tipo": { "type": "string", "description": "O tipo do imóvel: 'apartamento', 'cobertura', etc." },
+            "bairro": { "type": "string", "description": "O bairro de preferência do cliente." },
+            "rua": { "type": "string", "description": "Nome da rua, avenida ou logradouro para filtrar os imóveis. Ex: 'Presidente Backer', 'Miguel de Frias'." },
+            "quartos": { "type": "number", "description": "Número mínimo de quartos desejado." },
+            "vaga": { 
+                "type": "integer", 
+                "description": "Quantidade de vagas. Se o cliente apenas disser 'quero com vaga', envie 1. Se definir quantidade (ex: 2), envie o número exato. Se não mencionar, não envie este campo." 
+            },
+            "precoVendaMax": { "type": "number", "description": "Valor máximo para compra." },
+            "precoLocacaoMax": { "type": "number", "description": "Valor máximo para aluguel." },
+            "extras": { "type": "array", "items": { "type": "string" }, "description": "Lista de características extras." }
+        },
+        "required": ["intencao"]
+    }
+},
                 { 
                     "name": "qualificar_lead", 
                     "description": "Chame ao perceber interesse claro em visita ou falar com corretor. Sempre extraia o nome do cliente da conversa.", 
@@ -514,7 +515,7 @@ app.post('/webhook', async (req, res) => {
                     salvarHistorico(sender, conversa); 
                 }
             } 
-            else if (functionCall.name === "buscar_imoveis_filtros") {
+           else if (functionCall.name === "buscar_imoveis_filtros") {
                 const normalize = (str) => {
                     if (!str) return "";
                     return String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[-\s]/g, "");
@@ -532,7 +533,8 @@ app.post('/webhook', async (req, res) => {
                     "compra": "forsale", "venda": "forsale", "aluguel": "forrent", "locacao": "forrent"
                 };
 
-                const { intencao, bairro, quartos, precoVendaMax, precoLocacaoMax, tipo, vaga, extras } = functionCall.args;
+                // 1. ADICIONADO A VARIÁVEL 'rua' AQUI
+                const { intencao, bairro, rua, quartos, precoVendaMax, precoLocacaoMax, tipo, vaga, extras } = functionCall.args;
                 const precoMax = precoVendaMax || precoLocacaoMax || 0;
                 
                 const nVagasPedido = parseInt(vaga);
@@ -545,6 +547,10 @@ app.post('/webhook', async (req, res) => {
                     const tipoImovelXML = normalize(v(i.Details?.PropertyType));
                     const transacaoXML = normalize(v(i.TransactionType));
                     const descricao = normalize(v(i.Details?.Description));
+                    
+                    // 2. ADICIONADO: Puxando o endereço do imóvel para a busca
+                    const enderecoImovel = normalize(obterEnderecoSeguro(i)); 
+                    
                     const pV = parseFloat(v(i.Details?.ListPrice)) || 0;
                     const pL = parseFloat(v(i.Details?.RentalPrice)) || 0;
                     const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
@@ -553,6 +559,10 @@ app.post('/webhook', async (req, res) => {
                     const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
 
                     const matchBairro = !bairro || bairroImovel.includes(normalize(bairro));
+                    
+                    // 3. ADICIONADO: Lógica do Match Rua
+                    const matchRua = !rua || enderecoImovel.includes(normalize(rua)); 
+                    
                     const matchIntencao = !intencao || (isVenda && transacaoXML.includes("sale")) || (isLocacao && transacaoXML.includes("rent"));
                     const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
                     
@@ -572,7 +582,8 @@ app.post('/webhook', async (req, res) => {
                         
                     const matchExtras = !extras || extras.every(extra => descricao.includes(normalize(extra)) || features.includes(normalize(extra)));
                     
-                    return matchBairro && matchIntencao && matchTipo && matchQuartos && matchPreco && matchVaga && matchExtras;
+                    // 4. ADICIONADO: matchRua na validação final
+                    return matchBairro && matchRua && matchIntencao && matchTipo && matchQuartos && matchPreco && matchVaga && matchExtras;
                 };
                 
                 let resultados = cacheImoveis.filter(i => filtra(i, true));
