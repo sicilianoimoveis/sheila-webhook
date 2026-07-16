@@ -246,7 +246,7 @@ app.post('/webhook', async (req, res) => {
                             "vaga": { 
     "type": "integer", 
     "description": "Quantidade de vagas desejada. Se o cliente disser 'com vaga' ou 'quero vaga', envie 1. Se disser um número (ex: '2 vagas'), envie esse número. Caso o cliente não mencione vagas, NÃO envie este campo." 
-}
+},
                             "precoVendaMax": { "type": "number", "description": "Valor máximo para compra." },
 "precoLocacaoMax": { "type": "number", "description": "Valor máximo para aluguel." },
                             "extras": { 
