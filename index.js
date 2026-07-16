@@ -243,7 +243,10 @@ app.post('/webhook', async (req, res) => {
                             },
                             "bairro": { "type": "string", "description": "O bairro de preferência do cliente." },
                             "quartos": { "type": "number", "description": "Número mínimo de quartos desejado." },
-                            "vaga": { "type": "boolean", "description": "Se o imóvel precisa ter vaga de garagem (true para sim, false para não)." },
+                            "vaga": { 
+    "type": "integer", 
+    "description": "Quantidade de vagas desejada. Se o cliente disser 'com vaga' ou 'quero vaga', envie 1. Se disser um número (ex: '2 vagas'), envie esse número. Caso o cliente não mencione vagas, NÃO envie este campo." 
+}
                             "precoVendaMax": { "type": "number", "description": "Valor máximo para compra." },
 "precoLocacaoMax": { "type": "number", "description": "Valor máximo para aluguel." },
                             "extras": { 
@@ -371,7 +374,7 @@ app.post('/webhook', async (req, res) => {
 
     console.log("LOG_DEBUG: Entrou na função buscar_imoveis_filtros");
     const { intencao, bairro, quartos, precoMax, tipo, vaga, extras } = functionCall.args;
-    
+    const nVagasPedido = parseInt(vaga) || 0;
     const buscaIntencao = normalize(intencao || "");
     const isVenda = buscaIntencao.includes("compra") || buscaIntencao.includes("venda") || buscaIntencao.includes("sale");
     const isLocacao = buscaIntencao.includes("aluguel") || buscaIntencao.includes("locacao") || buscaIntencao.includes("rent");
@@ -406,7 +409,8 @@ app.post('/webhook', async (req, res) => {
             }
         }
 
-        const matchVaga = (vaga === undefined || vaga === null) || (!!i.Details?.ParkingSpaces === vaga);
+        const nVagasXML = parseInt(v(i.Details?.ParkingSpaces)) || 0;
+        const matchVaga = !vagaNum || (modoExato ? (nVagasXML === vagaNum) : (nVagasXML >= vagaNum));
         const matchQuartos = !quartos || (modoExato ? (qteQuartos === quartos) : (qteQuartos >= quartos));
 
         const features = Array.isArray(i.Details?.Features?.Feature) 
@@ -420,13 +424,13 @@ app.post('/webhook', async (req, res) => {
         return matchBairro && matchIntencao && matchTipo && matchQuartos && matchPreco && matchVaga && matchExtras;
     };
     
-
+const vagaNum = (typeof vaga === 'boolean') ? (vaga ? 1 : 0) : parseInt(vaga);
 
                 let resultados = cacheImoveis.filter(i => filtra(i, true));
 
-                if (resultados.length === 0 && quartos) {
-                    resultados = cacheImoveis.filter(i => filtra(i, false));
-                }
+                if (resultados.length === 0) {
+    resultados = cacheImoveis.filter(i => filtra(i, false));
+}
 
                 resultados = resultados.slice(0, 3);
                 console.log("LOG_DEBUG: Imóveis encontrados após filtro:", resultados.length);
