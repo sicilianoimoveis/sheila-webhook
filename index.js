@@ -194,6 +194,7 @@ app.get('/limpar-historico/:sender', async (req, res) => {
     }
 });
 
+// --- ROTAS ---
 app.get('/chat/:sender', (req, res) => {
     const { sender } = req.params;
     const { token } = req.query;
@@ -203,9 +204,14 @@ app.get('/chat/:sender', (req, res) => {
     const nomeLead = leadInfo.nome;
     const conversa = historicos[sender] || [];
 
+    // O SEGREDO ESTÁ AQUI: Filtramos tudo que for "pensamento interno" da IA para não aparecer no HTML
     const mensagensFiltradas = conversa.filter(m => {
         const txt = m.parts && m.parts[0] ? m.parts[0].text : (m.text || "");
-        return txt && !txt.includes("DADOS TÉCNICOS PARA CONSULTA") && !txt.includes("O nome deste cliente é");
+        return txt && 
+               !txt.includes("DADOS TÉCNICOS PARA CONSULTA") && 
+               !txt.includes("INFORMAÇÃO INTERNA DA SHEILA") && 
+               !txt.includes("CONSULTA DE IMÓVEL") && 
+               !txt.includes("O nome deste cliente é");
     });
 
     let html = `<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0">
