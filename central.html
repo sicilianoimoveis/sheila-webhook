@@ -139,5 +139,45 @@
             .then(res => res.text()).then(msg => { alert(msg); location.reload(); });
         }
     </script>
+    <script>
+    // 1. Pede permissão para enviar notificações assim que você abre a central
+    document.addEventListener('DOMContentLoaded', () => {
+        if (Notification.permission !== "granted") {
+            Notification.requestPermission();
+        }
+    });
+
+    let leadsConhecidos = 0;
+
+    // 2. Função que fica checando novidades a cada 30 segundos
+    setInterval(() => {
+        fetch(`/leads?token=${token}`)
+            .then(res => res.json())
+            .then(data => {
+                // Filtra para ver se tem alguma reclamação recente/urgente
+                const leadsUrgentes = data.filter(l => l.statusUrgente);
+                
+                // Se o número de leads ou urgências mudar, atualiza a tela
+                if (data.length !== leadsConhecidos) {
+                    leadsConhecidos = data.length;
+                    renderLeads(); // Atualiza a lista visualmente
+                }
+
+                // Dispara a notificação push no celular/PC se houver reclamação
+                leadsUrgentes.forEach(lead => {
+                    // Usamos localStorage para não notificar a mesma reclamação duas vezes
+                    if (!localStorage.getItem(`notificado_${lead.sender}`)) {
+                        if (Notification.permission === "granted") {
+                            new Notification("🚨 Reclamação / Cobrança", {
+                                body: `O cliente ${lead.nome || lead.sender} registrou um problema!`,
+                                icon: "https://img.apre.me/M7UtVktPLcjSy00sSk8sKc7LVMhPz8-RL07NyUyzzVSztDQwtU0GAA.jpeg"
+                            });
+                            localStorage.setItem(`notificado_${lead.sender}`, 'true');
+                        }
+                    }
+                });
+            });
+    }, 30000); // Roda a cada 30 segundos
+</script>
 </body>
 </html>
