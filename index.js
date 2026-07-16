@@ -104,8 +104,21 @@ function obterHistorico(sender) {
     }));
 }
 
+// --- FUNÇÕES DE HISTÓRICO CORRIGIDAS ---
+
+function obterHistorico(sender) {
+    if (!historicos[sender]) return [];
+    
+    // Converte o formato simples {role, text} (que está no JSON) 
+    // para o formato técnico {role, parts: [{text}]} (que o Gemini exige)
+    return historicos[sender].map(m => ({
+        role: m.role,
+        parts: [{ text: m.text }] 
+    }));
+}
+
 function salvarHistorico(sender, conversa) {
-    // Limpamos apenas a estrutura técnica desnecessária, mas mantemos TODAS as mensagens
+    // Transforma a estrutura técnica em formato simples para salvar no disco
     const conversaLimpa = conversa.map(m => ({
         role: m.role,
         text: m.parts && m.parts[0] ? m.parts[0].text : (m.text || "")
@@ -113,8 +126,8 @@ function salvarHistorico(sender, conversa) {
 
     historicos[sender] = conversaLimpa;
 
-    // Grava tudo no disco
-    fs.promises.writeFile(FILE_PATH, JSON.stringify(historicos, null, 0))
+    // Grava no disco
+    fs.promises.writeFile(FILE_PATH, JSON.stringify(historicos, null, 2))
         .catch(err => console.error("Erro ao salvar histórico:", err));
 }
 
@@ -530,31 +543,25 @@ const vagaNum = (typeof vaga === 'boolean') ? (vaga ? 1 : 0) : parseInt(vaga);
 app.post('/webhook-lead', async (req, res) => {
     const { name, phone, building_id, origin_desc } = req.body;
     const celular = phone ? phone.replace(/\D/g, '') : null;
-    
     if (!name || !celular || !building_id) return res.status(400).send("Dados incompletos.");
     
     try {
         const imovel = cacheImoveis.find(i => String(i.ListingID) === String(building_id));
         const link = imovel ? imovel.DetailViewUrl : "consulte em nosso site";
         
-        // 1. Dispara o template que já está configurado no Meta
+        const conversa = obterHistorico(celular);
+        
+        // Adiciona o contexto de forma estruturada
+        conversa.push({ role: "user", parts: [{ text: `O nome deste cliente é ${name}.` }] });
+        conversa.push({ role: "model", parts: [{ text: `Olá ${name}, recebemos sua solicitação para o imóvel: ${link}.` }] });
+        
         await enviarTemplateLead(celular, name, link);
         
-        // 2. Registra o que foi enviado no histórico da Sheila para manter a continuidade
-        // O texto precisa espelhar exatamente o que está no corpo do seu template 'contato_lead'
-        const textoTemplate = `Olá ${name}, tudo bem? Recebemos sua solicitação para obter informações sobre o imóvel: ${link}. Sou a Sheila da Siciliano Imóveis, gostaria de mais informações sobre o imóvel?`;
-        
-        const conversa = obterHistorico(celular);
-        conversa.push({ role: "model", parts: [{ text: textoTemplate }] });
-        
         salvarHistorico(celular, conversa); 
-        atualizarIndiceLeads(celular, name, origin_desc?.name, false, building_id);
+        atualizarIndiceLeads(celular, name, origin_desc?.name);
         
-        res.status(200).send("Lead processado e histórico atualizado");
-    } catch (error) { 
-        console.error("Erro lead:", error.message); 
-        res.status(500).send("Erro"); 
-    }
+        res.status(200).send("Lead processado");
+    } catch (error) { console.error("Erro lead:", error.message); res.status(500).send("Erro"); }
 });
 
 app.get('/central', basicAuth, (req, res) => {
