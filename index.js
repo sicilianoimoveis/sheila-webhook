@@ -456,7 +456,16 @@ app.post('/webhook', async (req, res) => {
 
         const response = await axios.post(url, payloadInicial);
         const contentResponse = response.data?.candidates?.[0]?.content;
-        const functionCall = contentResponse?.parts?.[0]?.functionCall;
+        
+        // CORREÇÃO: Varre toda a resposta da IA garantindo que ela não "esqueça" o comando de busca
+        const functionCall = contentResponse?.parts?.find(p => p.functionCall)?.functionCall;
+
+        // Se a IA mandou um texto ANTES da função (ex: "Vou olhar o sistema..."), enviamos esse texto pro cliente aguardar
+        const textoIntro = contentResponse?.parts?.find(p => p.text)?.text;
+        if (functionCall && textoIntro) {
+            await enviarMensagem(sender, textoIntro);
+            conversa.push({ "role": "model", "parts": [{ "text": textoIntro }] });
+        }
 
         if (functionCall) {
             console.log("LOG_DEBUG: A Sheila chamou a função:", functionCall.name);
@@ -643,7 +652,8 @@ app.post('/webhook', async (req, res) => {
                 }
             }
         } else {
-            const textoRespostaPura = contentResponse?.parts?.[0]?.text;
+            // CORREÇÃO: Pega todo o texto gerado caso ela responda em múltiplos blocos
+            const textoRespostaPura = contentResponse?.parts?.filter(p => p.text).map(p => p.text).join('\n\n');
             if (textoRespostaPura) {
                 await enviarMensagem(sender, textoRespostaPura);
                 conversa.push({ "role": "model", "parts": [{ "text": textoRespostaPura }] });
