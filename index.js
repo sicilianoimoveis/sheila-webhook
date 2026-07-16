@@ -30,6 +30,23 @@ const ORIGENS = {
     "lead4sales": "7333"
 };
 
+// Traduz o nome que vem do CRM para a chave da Sheila
+function traduzirOrigem(nomePortal) {
+    if (!nomePortal) return "whatsapp_direto";
+    
+    // Converte tudo para minúsculo e tira acentos para evitar erros
+    const texto = String(nomePortal).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    
+    if (texto.includes("viva real") || texto.includes("vivareal")) return "vivareal"; // Vai retornar 7331
+    if (texto.includes("imovelweb") || texto.includes("imovel web")) return "imovelweb"; // Vai retornar 7329
+    if (texto.includes("chaves")) return "chaves_na_mao"; // Vai retornar 7330
+    if (texto.includes("zap")) return "zap"; // Vai retornar 7332
+    if (texto.includes("instagram")) return "instagram"; // Vai retornar 7328
+    if (texto.includes("lead4sales")) return "lead4sales"; // Vai retornar 7333
+    
+    return "whatsapp_direto"; // Padrão se não achar nada
+}
+
 // --- GERENCIAMENTO XML ---
 let cacheImoveis = [];
 async function atualizarBaseImoveis() {
@@ -56,7 +73,6 @@ const v = (campo) => {
     return String(campo).trim();
 };
 
-// NOVO: Extrai endereço ignorando NÚMERO e COMPLEMENTO por segurança
 const obterEnderecoSeguro = (imovel) => {
     const loc = imovel?.Location;
     if (!loc) return "Não informado";
@@ -180,6 +196,56 @@ function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId 
     fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
 }
 
+// --- NOVO: FUNÇÃO CENTRALIZADA DE ENVIO PARA O CRM VIA WEBHOOK ---
+async function enviarLeadParaCRM(sender, contexto) {
+    const lead = leadsIndex[sender];
+    if (!lead) return;
+
+    // 1. Converte a intenção para os padrões do CRM
+    let purposeStr = "sale"; 
+    if (contexto.interesse && contexto.interesse.toLowerCase().includes('loca')) {
+        purposeStr = "rent";
+    }
+
+    // 2. Resgata o último imóvel que o lead demonstrou interesse
+    let buildingId = null;
+    if (lead.imoveisInteresse && lead.imoveisInteresse.length > 0) {
+        buildingId = lead.imoveisInteresse[lead.imoveisInteresse.length - 1]; 
+    }
+
+    // 3. Traduz a origem atual do lead para o código numérico
+    const codigoOrigem = parseInt(ORIGENS[lead.origem] || ORIGENS["whatsapp_direto"]);
+
+    // 4. Monta o Payload. (Enviando os campos antigos e novos simultaneamente para evitar quebra de integração)
+    const payload = {
+        nome: lead.nome || "Cliente",
+        celular: sender,
+        origem: codigoOrigem,
+        mensagem: contexto.mensagem || "Atendimento realizado pela Sheila",
+        observacoes: contexto.observacoes || "",
+        // Campos estruturados
+        name: lead.nome || "Cliente",
+        phone: sender,
+        purpose: purposeStr,
+        origin_id: codigoOrigem,
+        notes: contexto.observacoes || ""
+    };
+
+    if (buildingId) {
+        payload.building_id = parseInt(buildingId);
+    }
+
+    try {
+        await axios.post('https://api.apresenta.me/webhook/integration/5099/ab72a9ac29cc5dba9a32eeb37f45461e', payload);
+        console.log(`LOG_DEBUG: Lead enviado para o CRM com sucesso. Origem: ${codigoOrigem}, Building_ID: ${buildingId || 'Nenhum'}`);
+        
+        lead.enviadoParaCRM = true;
+        atualizarIndiceLeads(sender, lead.nome, lead.origem);
+    } catch (error) {
+        console.error("ERRO ao enviar para o CRM via Webhook:", error.message);
+    }
+}
+
 // --- ROTAS ---
 app.get('/limpar-historico/:sender', async (req, res) => {
     const { sender } = req.params;
@@ -194,7 +260,6 @@ app.get('/limpar-historico/:sender', async (req, res) => {
     }
 });
 
-// --- ROTAS ---
 app.get('/chat/:sender', (req, res) => {
     const { sender } = req.params;
     const { token } = req.query;
@@ -204,7 +269,6 @@ app.get('/chat/:sender', (req, res) => {
     const nomeLead = leadInfo.nome;
     const conversa = historicos[sender] || [];
 
-    // O SEGREDO ESTÁ AQUI: Filtramos tudo que for "pensamento interno" da IA para não aparecer no HTML
     const mensagensFiltradas = conversa.filter(m => {
         const txt = m.parts && m.parts[0] ? m.parts[0].text : (m.text || "");
         return txt && 
@@ -336,20 +400,18 @@ app.post('/webhook', async (req, res) => {
                 salvarHistorico(sender, conversa);
             }      
             else if (functionCall.name === "qualificar_lead") {
-                let origemIdentificada = referral?.includes("instagram") ? "instagram" : "whatsapp_direto";
                 const nomeDoCliente = functionCall.args.nome || "Cliente";
-                const listaImoveis = leadsIndex[sender]?.imoveisInteresse?.join(', ') || "Nenhum imóvel vinculado";
                 const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
                 
-                await axios.post('https://api.apresenta.me/webhook/integration/5099/ab72a9ac29cc5dba9a32eeb37f45461e', {
-                    nome: nomeDoCliente, 
-                    celular: sender, 
-                    origem: ORIGENS[origemIdentificada], 
-                    mensagem: "Atendimento realizado pela Sheila", 
-                    observacoes: `Resumo: ${functionCall.args.interesse}\nImóveis: ${listaImoveis}\nLink da conversa: ${linkEspelho}`
+                // Salva o nome e envia para a central via nova função unificada
+                atualizarIndiceLeads(sender, nomeDoCliente);
+                
+                await enviarLeadParaCRM(sender, {
+                    interesse: functionCall.args.interesse,
+                    mensagem: "Atendimento realizado pela Sheila",
+                    observacoes: `Resumo: ${functionCall.args.interesse}\nLink da conversa: ${linkEspelho}`
                 });
 
-                atualizarIndiceLeads(sender, nomeDoCliente);
                 const msg = "Perfeito, acabei de encaminhar seu interesse para nossa equipe de corretores!";
                 await enviarMensagem(sender, msg);
                 conversa.push({ "role": "model", "parts": [{ "text": msg }] });
@@ -366,7 +428,6 @@ app.post('/webhook', async (req, res) => {
                     const precos = obterPrecosFormatados(imovel);
                     const desc = v(imovel.Details?.Description);
                     
-                    // Texto corrido sem formatação de lista para respeitar o SYSTEM_PROMPT
                     let dados = `DADOS TÉCNICOS PARA CONSULTA INTERNA: ID ${imovel.ListingID}, Título: ${imovel.Title}, Venda: ${precos.venda}, Locação: ${precos.locacao}, Condomínio: ${precos.condominio}, IPTU: ${precos.iptu}, Endereço permitido (NÃO informe número/complemento): ${enderecoSeguro}, Quartos: ${v(imovel.Details?.Bedrooms)}, Suítes: ${v(imovel.Details?.Suites)}, Vagas: ${v(imovel.Details?.Garage)}, Extras: ${features}, Descrição: ${desc}. Link: ${imovel.DetailViewUrl}. Lembre-se: aplique rigorosamente as diretrizes do seu SYSTEM PROMPT ao responder (resumo curto, texto corrido, sem listas).`;
 
                     conversa.push({ "role": "user", "parts": [{ "text": dados }] });
@@ -403,7 +464,6 @@ app.post('/webhook', async (req, res) => {
                 const { intencao, bairro, quartos, precoVendaMax, precoLocacaoMax, tipo, vaga, extras } = functionCall.args;
                 const precoMax = precoVendaMax || precoLocacaoMax || 0;
                 
-                // Trata a vaga recebida corretamente (seja 1 conceptual ou quantidade exata)
                 const nVagasPedido = parseInt(vaga);
                 const buscaIntencao = normalize(intencao || "");
                 const isVenda = buscaIntencao.includes("compra") || buscaIntencao.includes("venda") || buscaIntencao.includes("sale");
@@ -432,7 +492,6 @@ app.post('/webhook', async (req, res) => {
                     }
 
                     const nVagasXML = parseInt(v(i.Details?.Garage)) || 0;
-                    // Se nVagasPedido for NaN (undefined ou invalido), a condição é true (ignora filtro)
                     const matchVaga = isNaN(nVagasPedido) ? true : (modoExato ? (nVagasXML === nVagasPedido) : (nVagasXML >= nVagasPedido));
                     const matchQuartos = !quartos || (modoExato ? (qteQuartos === quartos) : (qteQuartos >= quartos));
 
@@ -449,10 +508,9 @@ app.post('/webhook', async (req, res) => {
                 if (resultados.length === 0) resultados = cacheImoveis.filter(i => filtra(i, false));
                 resultados = resultados.slice(0, 3);
 
-               if (resultados.length > 0) {
+                if (resultados.length > 0) {
                     await enviarMensagem(sender, "Encontrei estas opções para você:");
                     
-                    // 1. Variável para acumular o contexto técnico das opções sugeridas
                     let contextoOpcoes = `INFORMAÇÃO INTERNA DA SHEILA - DADOS DOS IMÓVEIS SUGERIDOS NA BUSCA:\n`;
 
                     for (const i of resultados) {
@@ -461,7 +519,6 @@ app.post('/webhook', async (req, res) => {
                         const features = obterFeatures(i);
                         const desc = v(i.Details?.Description);
                         
-                        // 2. Adiciona a ficha técnica do imóvel na memória invisível
                         contextoOpcoes += `- Referência Link: ${i.DetailViewUrl}\n  ID: ${i.ListingID}\n  Venda: ${precos.venda} | Locação: ${precos.locacao}\n  Endereço permitido (sem número): ${enderecoSeguro}\n  Quartos: ${v(i.Details?.Bedrooms)} | Suítes: ${v(i.Details?.Suites)} | Vagas: ${v(i.Details?.Garage)}\n  Extras: ${features}\n\n`;
 
                         const dados = `Título: ${i.Title}, Descrição: ${desc}, Preço Venda: ${precos.venda}, Preço Locação: ${precos.locacao}, Link: ${i.DetailViewUrl}`;
@@ -491,7 +548,6 @@ app.post('/webhook', async (req, res) => {
                         await new Promise(resolve => setTimeout(resolve, 1000));
                     }
                     
-                    // 3. Injeta o contexto acumulado no histórico para as próximas perguntas do cliente
                     contextoOpcoes += `DIRETRIZ: Se o cliente perguntar detalhes (como rua, vagas ou suítes) sobre "o de 750 mil" ou "o primeiro da lista", consulte estritamente os dados acima. NUNCA invente ruas.`;
                     conversa.push({ "role": "user", "parts": [{ "text": contextoOpcoes }] });
                     
@@ -533,7 +589,6 @@ app.post('/webhook-lead', async (req, res) => {
             const precos = obterPrecosFormatados(imovel);
             const desc = v(imovel.Details?.Description);
             
-            // Texto corrido sem formatação e sem diretrizes adicionais para evitar conflitos
             const contextoOculto = `DADOS TÉCNICOS PARA CONSULTA INTERNA DA SHEILA: O cliente ${name} quer informações deste imóvel. ID ${imovel.ListingID}, Venda: ${precos.venda}, Locação: ${precos.locacao}, Condomínio: ${precos.condominio}, IPTU: ${precos.iptu}, Endereço permitido (NÃO informe número/complemento, é proibido): ${enderecoSeguro}, Quartos: ${v(imovel.Details?.Bedrooms)}, Suítes: ${v(imovel.Details?.Suites)}, Vagas: ${v(imovel.Details?.Garage)}, Características Extras: ${features}, Descrição Completa: ${desc}. Lembre-se: aja estritamente de acordo com o seu SYSTEM PROMPT (sem usar listas, formato humanizado).`;
             
             conversa.push({ role: "user", parts: [{ text: contextoOculto }] });
@@ -544,9 +599,12 @@ app.post('/webhook-lead', async (req, res) => {
         conversa.push({ role: "model", parts: [{ text: `Olá ${name}, recebemos sua solicitação para o imóvel: ${link}.` }] });
         await enviarTemplateLead(celular, name, link);
         salvarHistorico(celular, conversa); 
-        atualizarIndiceLeads(celular, name, origin_desc?.name, false, building_id);
         
-        res.status(200).send("Lead processado com contexto seguro injetado.");
+        // NOVO: Usando o tradutor de origens que garante a normalização do texto
+        const origemTraduzida = traduzirOrigem(origin_desc?.name);
+        atualizarIndiceLeads(celular, name, origemTraduzida, false, building_id);
+        
+        res.status(200).send("Lead processado com contexto seguro injetado e origem formatada.");
     } catch (error) { res.status(500).send("Erro"); }
 });
 
@@ -567,14 +625,15 @@ app.post('/enviar-crm/:sender', async (req, res) => {
 
     try {
         const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
-        await axios.post('https://api.apresenta.me/webhook/integration/5099/ab72a9ac29cc5dba9a32eeb37f45461e', {
-            nome: lead.nome, celular: sender, origem: ORIGENS[lead.origem] || "5159", 
-            mensagem: "Envio manual via Central de Leads", observacoes: `Lead enviado manualmente.\nLink da conversa: ${linkEspelho}`
+        
+        // Chamada atualizada com a função unificada
+        await enviarLeadParaCRM(sender, {
+            interesse: "venda", // Genérico para manual
+            mensagem: "Envio manual via Central de Leads",
+            observacoes: `Lead enviado manualmente.\nLink da conversa: ${linkEspelho}`
         });
 
-        lead.enviadoParaCRM = true;
-        atualizarIndiceLeads(sender, lead.nome, lead.origem);
-        res.status(200).send("Lead enviado com sucesso!");
+        res.status(200).send("Lead enviado com sucesso via função central!");
     } catch (error) { res.status(500).send("Erro ao enviar para CRM."); }
 });
 
@@ -605,15 +664,13 @@ async function monitorarLeads() {
 setInterval(monitorarLeads, 1800000);
 
 async function forcarEnvioCRM(sender, obs) {
-    const lead = leadsIndex[sender];
-    try {
-        await axios.post('https://api.apresenta.me/webhook/integration/5099/ab72a9ac29cc5dba9a32eeb37f45461e', {
-            nome: lead.nome || "Cliente", celular: sender, origem: ORIGENS[lead.origem] || "5159",
-            mensagem: "Encaminhamento automático", observacoes: `Sheila: ${obs}\nLink da conversa: https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`
-        });
-        lead.enviadoParaCRM = true;
-        fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
-    } catch (err) {}
+    const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
+    // Chamada atualizada com a função unificada
+    await enviarLeadParaCRM(sender, {
+        interesse: "venda", // Genérico de timeout
+        mensagem: "Encaminhamento automático",
+        observacoes: `Sheila: ${obs}\nLink da conversa: ${linkEspelho}`
+    });
 }
 
 const PORT = process.env.PORT || 8080;
