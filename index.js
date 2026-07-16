@@ -574,6 +574,7 @@ app.post('/webhook', async (req, res) => {
 });
 
 app.post('/webhook-lead', async (req, res) => {
+    console.log("DADOS REAIS QUE CHEGARAM DO CRM:", JSON.stringify(req.body, null, 2));
     const { name, phone, building_id, origin_desc } = req.body;
     const celular = phone ? phone.replace(/\D/g, '') : null;
     if (!name || !celular || !building_id) return res.status(400).send("Dados incompletos.");
