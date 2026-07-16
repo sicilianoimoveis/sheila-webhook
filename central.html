@@ -5,75 +5,67 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Central de Leads - Siciliano Imóveis</title>
     <style>
-        :root { --azul-siciliano: #1a1f3c; --cinza-chat: #d3d9de; --branco: #ffffff; }
-        body { font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; background-color: #f0f2f5; }
+        :root { 
+            --primary: #1a1f3c; 
+            --accent: #007bff; 
+            --bg: #f8f9fa; 
+            --text: #333;
+            --border: #e0e0e0;
+        }
+        body { font-family: 'Inter', system-ui, sans-serif; margin: 0; display: flex; height: 100vh; background-color: var(--bg); }
         
-        #sidebar { width: 360px; background: var(--azul-siciliano); display: flex; flex-direction: column; }
-        header { padding: 25px; text-align: center; }
-        header img { width: 110px; }
+        /* Sidebar */
+        #sidebar { width: 380px; background: white; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+        header { padding: 20px; text-align: center; border-bottom: 1px solid var(--border); }
+        header img { width: 120px; }
         
-        .search-container { padding: 20px; background: var(--cinza-chat); }
-        .label-conversas { font-weight: bold; color: var(--azul-siciliano); margin-bottom: 10px; display: block; font-size: 14px; }
-        .search-box, .filter-select { width: 100%; padding: 10px; margin-top: 8px; border: 1px solid #bbb; border-radius: 6px; box-sizing: border-box; }
+        .search-container { padding: 20px; }
+        .filter-group { display: flex; gap: 10px; margin-top: 10px; }
+        .search-box, .filter-select { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: #fdfdfd; }
         
-        #leads-container { flex: 1; overflow-y: auto; padding: 15px; background: var(--cinza-chat); }
+        #leads-container { flex: 1; overflow-y: auto; padding: 15px; }
         
-        /* Cards */
-        .card { background: var(--branco); padding: 14px; margin-bottom: 12px; border-radius: 8px; border-left: 6px solid var(--azul-siciliano); box-shadow: 0 2px 4px rgba(0,0,0,0.08); cursor: pointer; transition: 0.3s; }
-        .card:hover { transform: translateX(5px); background: #fdfdfd; }
-        .card h3 { margin: 0 0 5px 0; color: var(--azul-siciliano); font-size: 16px; }
-        .card p { margin: 2px 0; font-size: 12px; color: #555; }
-        .date { font-weight: bold; color: #888; font-size: 11px; display: block; margin-top: 5px; }
-        .btn-crm { margin-top: 10px; width: 100%; padding: 8px; border: none; border-radius: 4px; cursor: pointer; color: white; font-weight: bold; }
-
-        #main-chat { flex: 1; display: flex; flex-direction: column; background: var(--cinza-chat); position: relative; }
+        /* Cards Modernos */
+        .card { background: white; padding: 16px; margin-bottom: 12px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 2px 4px rgba(0,0,0,0.02); cursor: pointer; transition: 0.2s; }
+        .card:hover { border-color: var(--primary); transform: translateY(-2px); }
+        .card h3 { margin: 0 0 8px 0; color: var(--primary); font-size: 16px; }
+        .card .details { font-size: 13px; color: #666; margin-bottom: 10px; }
+        .btn-crm { width: 100%; padding: 10px; border: none; border-radius: 6px; cursor: pointer; color: white; font-weight: 600; font-size: 13px; }
+        
+        /* Chat Frame */
+        #main-chat { flex: 1; display: flex; flex-direction: column; background: white; position: relative; }
         #chat-frame { width: 100%; height: 100%; border: none; }
-        .placeholder { display: flex; align-items: center; justify-content: center; height: 100%; color: #555; font-size: 1.2em; }
+        .placeholder { display: flex; align-items: center; justify-content: center; height: 100%; color: #999; }
         
-        .back-btn { display: none; padding: 15px; background: var(--azul-siciliano); color: white; border: none; font-size: 16px; cursor: pointer; }
         @media (max-width: 768px) {
             #sidebar { width: 100%; }
-            #main-chat { position: absolute; top: 0; left: 100%; width: 100%; height: 100%; z-index: 100; }
+            #main-chat { position: absolute; top: 0; left: 100%; width: 100%; height: 100%; z-index: 100; transition: left 0.3s; }
             #main-chat.mobile-active { left: 0; }
-            .back-btn { display: block; }
+            .back-btn { display: block; padding: 15px; background: var(--primary); color: white; border: none; cursor: pointer; width: 100%; }
         }
     </style>
 </head>
 <body>
-
     <div id="sidebar">
-        <header><img src="https://img.apre.me/M7UtVktPLcjSy00sSk8sKc7LVMhPz8-RL07NyUyzzVSztDQwtU0GAA.jpeg" alt="Logo"></header>
-        
-       <div class="search-container">
-            <span class="label-conversas">FILTROS</span>
-            
-            <input type="text" id="searchInput" class="search-box" placeholder="Buscar por nome ou telefone...">
-            
-            <select id="filterOrigem" class="filter-select">
-                <option value="">Todas as origens</option>
-                <option value="instagram">Instagram</option>
-                <option value="whatsapp">WhatsApp</option>
-            </select>
-            
-            <select id="filterStatus" class="filter-select">
-                <option value="todos">Status: Todos</option>
-                <option value="enviado">Já no CRM</option>
-                <option value="pendente">Pendente CRM</option>
-            </select>
+        <header><img src="https://img.apre.me/M7UtVktPLcjSy00sSk8sKc7LVMhPz8-RL07NyUyzzVSztDQwtU0GAA.jpeg"></header>
+        <div class="search-container">
+            <input type="text" id="searchInput" class="search-box" placeholder="Buscar nome ou telefone...">
+            <div class="filter-group">
+                <select id="filterOrigem" class="filter-select"><option value="">Origem</option></select>
+                <select id="filterStatus" class="filter-select">
+                    <option value="todos">Status</option>
+                    <option value="enviado">Já no CRM</option>
+                    <option value="pendente">Pendente</option>
+                </select>
+            </div>
         </div>
-
-        <div style="padding: 15px 20px 5px 20px; background: var(--cinza-chat);">
-            <span class="label-conversas" style="margin: 0;">CONVERSAS</span>
-        </div>
-
         <div id="leads-container"></div>
     </div>
     <div id="main-chat">
-        <button class="back-btn" onclick="voltar()">← Voltar</button>
-        <div id="placeholder" class="placeholder">Selecione um lead na lista ao lado</div>
+        <button class="back-btn" onclick="voltar()">← Voltar para lista</button>
+        <div id="placeholder" class="placeholder">Selecione uma conversa</div>
         <iframe id="chat-frame" style="display:none;"></iframe>
     </div>
-
     <script>
         const token = "SEU_TOKEN_AQUI"; 
         const mainChat = document.getElementById('main-chat');
