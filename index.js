@@ -129,7 +129,7 @@ function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId 
         ultimaInteracao: new Date().toISOString(),
         enviadoParaCRM: statusCRM || leadsIndex[sender]?.enviadoParaCRM || false
     };
-    await fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
+    fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
     }
 
 // --- ROTAS ---
