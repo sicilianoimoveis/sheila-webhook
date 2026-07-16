@@ -435,6 +435,10 @@ app.post('/webhook', async (req, res) => {
                     await enviarMensagem(sender, "Encontrei estas opções para você:");
                     
                     for (const i of resultados) {
+                        const v = (campo) => (campo && typeof campo === 'object' ? (campo._ || String(campo)) : String(campo));
+    const precoV = v(i.Details?.ListPrice) || "0";
+    const precoL = v(i.Details?.RentalPrice) || "0";
+                        
                         const dados = `Título: ${i.Title}, Descrição: ${i.Details?.Description}, Preço Venda: R$ ${precoV}, Preço Locação: R$ ${precoL}, Link: ${i.DetailViewUrl}`;
                         const payloadLocal = [...conversa, { 
                             "role": "user", 
