@@ -67,26 +67,26 @@ async function enviarTemplateLead(para, nome, linkImovel) {
             components: [{ type: "body", parameters: [{ type: "text", text: nome }, { type: "text", text: linkImovel }] }]
         }
     };
+    await axios.post(url, payload, { headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}` } });
+}
 
-    async function enviarTemplateReengajamento(para, nome) {
+async function enviarTemplateReengajamento(para, nome) {
     const url = `https://graph.facebook.com/v25.0/1110417002164010/messages`;
     const payload = {
         messaging_product: "whatsapp",
         to: para,
         type: "template",
         template: {
-            name: "rengajamento", // Nome do template na Meta
+            name: "rengajamento",
             language: { code: "pt_BR" },
             components: [{ 
                 type: "body", 
-                parameters: [{ type: "text", text: nome }] // Variável {{1}} com o nome do lead
+                parameters: [{ type: "text", text: nome }]
             }]
         }
     };
-        
     await axios.post(url, payload, { headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}` } });
 }
-
 // --- CONTROLE DE DADOS ---
 const FILE_PATH = '/app/dados/historico.json';
 const LEADS_INDEX_PATH = '/app/dados/leads_index.json';
