@@ -405,6 +405,17 @@ app.post('/webhook', async (req, res) => {
             "contents": conversa,
             "tools": [{ "functionDeclarations": [
                 { 
+    "name": "registrar_reclamacao", 
+    "description": "Use IMEDIATAMENTE se o cliente reclamar de mau atendimento, relatar um problema grave (ex: falso corretor) ou cobrar um retorno que não foi dado.", 
+    "parameters": { 
+        "type": "object", 
+        "properties": { 
+            "motivo": { "type": "string", "description": "Resumo do problema relatado pelo cliente." } 
+        }, 
+        "required": ["motivo"] 
+    } 
+},
+                { 
     "name": "registrar_nome", 
     "description": "Use esta função IMEDIATAMENTE e de forma silenciosa assim que o cliente informar o nome dele na conversa, não importa qual seja o assunto.", 
     "parameters": { 
@@ -527,6 +538,33 @@ app.post('/webhook', async (req, res) => {
                 conversa.push({ "role": "model", "parts": [{ "text": msg }] });
                 salvarHistorico(sender, conversa); 
             } 
+                else if (functionCall.name === "registrar_reclamacao") {
+    const motivo = functionCall.args.motivo;
+    
+    // ATENÇÃO: Coloque o SEU número de WhatsApp aqui (com 55 e DDD, igual no sistema)
+    const numeroGerencia = "5521985559544"; 
+
+    // 1. Marca o lead com status de urgência no banco de dados
+    if (!leadsIndex[sender]) atualizarIndiceLeads(sender, null);
+    leadsIndex[sender].statusUrgente = true;
+    fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
+
+    // 2. Dispara o alerta para o SEU WhatsApp
+    const alerta = `🚨 *ALERTA DE RECLAMAÇÃO/COBRANÇA* 🚨\n\n*Cliente:* ${leadsIndex[sender]?.nome || sender}\n*Motivo:* ${motivo}\n*Acesse o chat:* https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
+    await enviarMensagem(numeroGerencia, alerta);
+
+    // 3. Pede para a Sheila acalmar o cliente
+    conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: O alerta foi enviado com sucesso para a diretoria da Siciliano. Agora, peça desculpas ao cliente de forma muito empática, avise que o caso acabou de ser escalado para a gerência e que entraremos em contato com urgência para resolver.` }] });
+    
+    const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
+    const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    
+    if (texto) {
+        await enviarMensagem(sender, texto);
+        conversa.push({ "role": "model", "parts": [{ "text": texto }] });
+        salvarHistorico(sender, conversa);
+    }
+}
             else if (functionCall.name === "buscar_imovel") {
                 const termo = functionCall.args.termo_de_busca;
                 const imovel = cacheImoveis.find(i => String(i.ListingID) === String(termo) || (i.DetailViewUrl && i.DetailViewUrl.includes(termo)));
