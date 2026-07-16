@@ -335,26 +335,44 @@ app.post('/webhook', async (req, res) => {
                 conversa.push({ "role": "model", "parts": [{ "text": msg }] });
                 salvarHistorico(sender, conversa); 
             } 
-            else if (functionCall.name === "buscar_imovel") {
+           else if (functionCall.name === "buscar_imovel") {
                 const termo = functionCall.args.termo_de_busca;
                 const imovel = cacheImoveis.find(i => String(i.ListingID) === String(termo) || (i.DetailViewUrl && i.DetailViewUrl.includes(termo)));
+                
                 if (imovel) {
                     atualizarIndiceLeads(sender, null, null, false, imovel.ListingID);
                 }
+                
                 const v = (campo) => (campo && typeof campo === 'object' ? campo._ : campo) || 'Não informado';
                 const feat = imovel?.Features?.Feature ? (Array.isArray(imovel.Features.Feature) ? imovel.Features.Feature.join(', ') : imovel.Features.Feature) : "Nenhuma característica extra informada.";
                 const enderecoReal = imovel && imovel.Location ? (Array.isArray(imovel.Location) ? imovel.Location[0].Address : imovel.Location.Address) : "Não informado";
-                let dados = imovel ? `ID: ${imovel.ListingID}, Preço: R$ ${v(imovel.Details.ListPrice)}, Rua: ${v(enderecoReal)}, Suítes: ${v(imovel.Details.Suites)}, Vagas: ${v(imovel.Details.Garage)}, Bairro: ${v(imovel.Location.Neighborhood)}, Features: ${feat}, Descrição: ${v(imovel.Details.Description)}` : "Imóvel não localizado.";
+                
+                // --- NOVA LÓGICA DE PREÇOS (VENDA E LOCAÇÃO) ---
+                const precoV = v(imovel?.Details?.ListPrice);
+                const precoL = v(imovel?.Details?.RentalPrice);
+                
+                let precoDisplay = "";
+                if (precoL !== 'Não informado' && precoL !== "0" && precoV !== 'Não informado' && precoV !== "0") {
+                    precoDisplay = `Venda: R$ ${precoV} / Locação: R$ ${precoL}`;
+                } else if (precoL !== 'Não informado' && precoL !== "0") {
+                    precoDisplay = `Locação: R$ ${precoL}`;
+                } else {
+                    precoDisplay = `Venda: R$ ${precoV}`;
+                }
+
+                let dados = imovel ? `ID: ${imovel.ListingID}, Preços: ${precoDisplay}, Rua: ${v(enderecoReal)}, Suítes: ${v(imovel.Details?.Suites)}, Vagas: ${v(imovel.Details?.Garage)}, Bairro: ${v(imovel.Location?.Neighborhood)}, Features: ${feat}, Descrição: ${v(imovel.Details?.Description)}` : "Imóvel não localizado.";
                 
                 conversa.push({ "role": "user", "parts": [{ "text": `CONSULTA DE IMÓVEL: ${dados}. USE APENAS ESTAS INFORMAÇÕES TÉCNICAS. NÃO INVENTE DADOS.` }] });
+                
                 const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
                 const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+                
                 if (texto) { 
                     await enviarMensagem(sender, texto); 
                     conversa.push({ "role": "model", "parts": [{ "text": texto }] });
                     salvarHistorico(sender, conversa); 
                 }
-            } 
+            }
           else if (functionCall.name === "buscar_imoveis_filtros") {
     console.log("Filtros recebidos:", functionCall.args);
     
