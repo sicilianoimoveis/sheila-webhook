@@ -331,14 +331,7 @@ app.get('/chat/:sender', (req, res) => {
     });
 
     let html = `<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #e5ddd5; margin: 0; display: flex; flex-direction: column; height: 100vh; }
-    .header { background: #075e54; color: white; padding: 15px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .msg { padding: 12px 16px; margin: 6px 10px; border-radius: 12px; max-width: 80%; font-size: 15px; line-height: 1.4; position: relative; }
-    .user { background: #dcf8c6; align-self: flex-end; border-top-right-radius: 0; }
-    .model { background: white; align-self: flex-start; border-top-left-radius: 0; }
-    .time { font-size: 10px; color: #888; margin-top: 4px; text-align: right; display: block; }
-</style></head><body>
+    <style>body{font-family:sans-serif;background:#e5ddd5;margin:0;padding:0;}.header{background:#fff;padding:20px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.1);}.header img{width:80px;height:auto;margin-bottom:10px;}.lead-info{background:#fff;padding:15px;text-align:center;margin-bottom:10px;}.msg{padding:10px 15px;margin:5px 10px;border-radius:8px;max-width:85%;position:relative;font-size:14px;word-wrap:break-word;}.user{background:#dcf8c6;margin-left:auto;text-align:right;}.model{background:#ffffff;margin-right:auto;}.time{font-size:10px;color:#999;margin-top:5px;display:block;}</style></head><body>
     <div class="header"><img src="https://img.apre.me/M7UtVktPLcjSy00sSk8sKc7LVMhPz8-RL07NyUyzzVSztDQwtU0GAA.jpeg" alt="Logo"><div style="font-weight:bold; color:#333;">Atendido pela Sheila</div></div>
     <div class="lead-info"><strong>Cliente:</strong> ${nomeLead}<br><small>${sender}</small><br><a href="https://wa.me/${sender}" style="color:#075e54;">Enviar WhatsApp</a></div>
     ${mensagensFiltradas.map(m => {
@@ -348,6 +341,7 @@ app.get('/chat/:sender', (req, res) => {
 
     res.send(html);
 });
+
 
 app.get('/leads', (req, res) => {
     if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) return res.status(403).send("Acesso negado.");
