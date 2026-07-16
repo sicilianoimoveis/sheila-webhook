@@ -409,7 +409,7 @@ app.post('/webhook', async (req, res) => {
             }
         }
 
-        const nVagasXML = parseInt(v(i.Details?.ParkingSpaces)) || 0;
+        const nVagasXML = parseInt(v(i.Details?.Garage)) || 0;
         const matchVaga = !vagaNum || (modoExato ? (nVagasXML === vagaNum) : (nVagasXML >= vagaNum));
         const matchQuartos = !quartos || (modoExato ? (qteQuartos === quartos) : (qteQuartos >= quartos));
 
