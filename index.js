@@ -95,40 +95,22 @@ let leadsIndex = {};
 
 function obterHistorico(sender) {
     if (!historicos[sender]) return [];
-
-    // Converte o formato simples {role, text} para o formato técnico da API
-    // Isso garante que o Gemini receba a conversa exatamente como ele entende
-    return historicos[sender].map(m => ({
-        role: m.role,
-        parts: [{ text: m.text }] 
-    }));
-}
-
-// --- FUNÇÕES DE HISTÓRICO CORRIGIDAS ---
-
-function obterHistorico(sender) {
-    if (!historicos[sender]) return [];
     
-    // Converte o formato simples {role, text} (que está no JSON) 
-    // para o formato técnico {role, parts: [{text}]} (que o Gemini exige)
+    // Retorna sempre no formato que o Gemini espera: { role, parts: [{ text }] }
     return historicos[sender].map(m => ({
         role: m.role,
-        parts: [{ text: m.text }] 
+        parts: Array.isArray(m.parts) ? m.parts : [{ text: m.text || "" }]
     }));
 }
 
 function salvarHistorico(sender, conversa) {
-    // Transforma a estrutura técnica em formato simples para salvar no disco
-    const conversaLimpa = conversa.map(m => ({
+    // Converte para o formato simples para salvar no JSON (mais leve)
+    historicos[sender] = conversa.map(m => ({
         role: m.role,
-        text: m.parts && m.parts[0] ? m.parts[0].text : (m.text || "")
+        parts: m.parts // Mantém a estrutura de array do Gemini
     }));
 
-    historicos[sender] = conversaLimpa;
-
-    // Grava no disco
-    fs.promises.writeFile(FILE_PATH, JSON.stringify(historicos, null, 2))
-        .catch(err => console.error("Erro ao salvar histórico:", err));
+    fs.writeFileSync(FILE_PATH, JSON.stringify(historicos, null, 2));
 }
 
 function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId = null) {
@@ -147,8 +129,8 @@ function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId 
         ultimaInteracao: new Date().toISOString(),
         enviadoParaCRM: statusCRM || leadsIndex[sender]?.enviadoParaCRM || false
     };
-    fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
-}
+    await fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
+    }
 
 // --- ROTAS ---
 app.get('/limpar-historico/:sender', async (req, res) => {
