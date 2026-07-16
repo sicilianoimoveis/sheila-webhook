@@ -443,12 +443,22 @@ app.post('/webhook', async (req, res) => {
                 if (resultados.length === 0) resultados = cacheImoveis.filter(i => filtra(i, false));
                 resultados = resultados.slice(0, 3);
 
-                if (resultados.length > 0) {
+               if (resultados.length > 0) {
                     await enviarMensagem(sender, "Encontrei estas opções para você:");
                     
+                    // 1. Variável para acumular o contexto técnico das opções sugeridas
+                    let contextoOpcoes = `INFORMAÇÃO INTERNA DA SHEILA - DADOS DOS IMÓVEIS SUGERIDOS NA BUSCA:\n`;
+
                     for (const i of resultados) {
                         const precos = obterPrecosFormatados(i);
-                        const dados = `Título: ${i.Title}, Descrição: ${v(i.Details?.Description)}, Preço Venda: ${precos.venda}, Preço Locação: ${precos.locacao}, Link: ${i.DetailViewUrl}`;
+                        const enderecoSeguro = obterEnderecoSeguro(i);
+                        const features = obterFeatures(i);
+                        const desc = v(i.Details?.Description);
+                        
+                        // 2. Adiciona a ficha técnica do imóvel na memória invisível
+                        contextoOpcoes += `- Referência Link: ${i.DetailViewUrl}\n  ID: ${i.ListingID}\n  Venda: ${precos.venda} | Locação: ${precos.locacao}\n  Endereço permitido (sem número): ${enderecoSeguro}\n  Quartos: ${v(i.Details?.Bedrooms)} | Suítes: ${v(i.Details?.Suites)} | Vagas: ${v(i.Details?.Garage)}\n  Extras: ${features}\n\n`;
+
+                        const dados = `Título: ${i.Title}, Descrição: ${desc}, Preço Venda: ${precos.venda}, Preço Locação: ${precos.locacao}, Link: ${i.DetailViewUrl}`;
                         const payloadLocal = [...conversa, { 
                             "role": "user", 
                             "parts": [{ "text": `Apresente este imóvel: ${dados}. Respeite rigorosamente as regras do seu SYSTEM PROMPT para apresentação de imóveis.` }] 
@@ -468,11 +478,17 @@ app.post('/webhook', async (req, res) => {
                                 await enviarMensagem(sender, `*${i.Title}*\n💰 ${precoDisplay}\n🔗 ${i.DetailViewUrl}`);
                             }
                         } catch (e) {
+                            console.error("Erro na chamada da IA:", e);
                             const precoDisplay = (precos.pLocacao > 0) ? `${precos.locacao} (Locação)` : `${precos.venda} (Venda)`;
                             await enviarMensagem(sender, `*${i.Title}*\n💰 ${precoDisplay}\n🔗 ${i.DetailViewUrl}`);
                         }
                         await new Promise(resolve => setTimeout(resolve, 1000));
                     }
+                    
+                    // 3. Injeta o contexto acumulado no histórico para as próximas perguntas do cliente
+                    contextoOpcoes += `DIRETRIZ: Se o cliente perguntar detalhes (como rua, vagas ou suítes) sobre "o de 750 mil" ou "o primeiro da lista", consulte estritamente os dados acima. NUNCA invente ruas.`;
+                    conversa.push({ "role": "user", "parts": [{ "text": contextoOpcoes }] });
+                    
                     salvarHistorico(sender, conversa);
                 } else {
                     const msg = "Não encontrei imóveis com essas características agora. Gostaria que eu passasse seu contato para o nosso corretor buscar algo personalizado?";
