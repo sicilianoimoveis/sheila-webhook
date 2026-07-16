@@ -405,6 +405,15 @@ app.post('/webhook', async (req, res) => {
             "contents": conversa,
             "tools": [{ "functionDeclarations": [
                 { 
+    "name": "registrar_nome", 
+    "description": "Use esta função IMEDIATAMENTE e de forma silenciosa assim que o cliente informar o nome dele na conversa, não importa qual seja o assunto.", 
+    "parameters": { 
+        "type": "object", 
+        "properties": { "nome": { "type": "string" } }, 
+        "required": ["nome"] 
+    } 
+},
+                { 
                     "name": "iniciar_captacao", 
                     "description": "Chamar quando o cliente expressar desejo de vender, alugar ou anunciar o próprio imóvel.", 
                     "parameters": { "type": "object", "properties": {}, "required": [] } 
@@ -471,6 +480,24 @@ app.post('/webhook', async (req, res) => {
                 conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
                 salvarHistorico(sender, conversa);
             }
+                else if (functionCall.name === "registrar_nome") {
+    const nomeDoCliente = functionCall.args.nome;
+    
+    // 1. Atualiza apenas o nome no seu banco de dados (não envia pro CRM)
+    atualizarIndiceLeads(sender, nomeDoCliente);
+    
+    // 2. Avisa a Sheila que o nome foi salvo e pede para ela continuar o papo
+    conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: O nome '${nomeDoCliente}' foi salvo no sistema. Agora responda com empatia e naturalmente ao que o cliente acabou de falar.` }] });
+    
+    const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
+    const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    
+    if (texto) {
+        await enviarMensagem(sender, texto);
+        conversa.push({ "role": "model", "parts": [{ "text": texto }] });
+        salvarHistorico(sender, conversa);
+    }
+}
             else if (functionCall.name === "processar_captacao") {
                 const { endereco } = functionCall.args;
                 leadsIndex[sender].categoria = 'processado'; 
