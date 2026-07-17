@@ -468,38 +468,7 @@ app.post('/webhook', async (req, res) => {
         "required": ["intencao"]
     }
 },
-                else if (functionCall.name === "qualificar_lead") {
-                const nomeDoCliente = functionCall.args.nome || "Cliente";
-                const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
-                
-                // Salva o nome e envia para a central via nova função unificada
-                atualizarIndiceLeads(sender, nomeDoCliente);
-                
-                await enviarLeadParaCRM(sender, {
-                    interesse: functionCall.args.interesse,
-                    mensagem: "Atendimento realizado pela Sheila",
-                    observacoes: `Resumo: ${functionCall.args.interesse}\nLink da conversa: ${linkEspelho}`
-                });
-
-                // MENSAGEM 1: Confirmação do CRM
-                const msg1 = "Perfeito, acabei de encaminhar seu interesse para nossa equipe de corretores! ✨";
-                await enviarMensagem(sender, msg1);
-                conversa.push({ "role": "model", "parts": [{ "text": msg1 }] });
-
-                // Espera de 1.5 segundos para parecer natural
-                await new Promise(resolve => setTimeout(resolve, 1500));
-
-                // MENSAGEM 2: O convite para avaliação no Google
-                const msg2 = "Ah, e se estiver satisfeito com o meu atendimento até aqui, te convido a deixar uma avaliação rápida no link abaixo. Ajuda muito o meu trabalho!\nhttps://search.google.com/local/writereview?placeid=ChIJ_w2xUXjfmwAR3DnuGUi-5hQ";
-                await enviarMensagem(sender, msg2);
-                conversa.push({ "role": "model", "parts": [{ "text": msg2 }] });
-
-                // Salva tudo no histórico
-                salvarHistorico(sender, conversa); 
-            }
-            ]}]
-        };
-
+               
         const response = await axios.post(url, payloadInicial);
         const contentResponse = response.data?.candidates?.[0]?.content;
         const functionCall = contentResponse?.parts?.[0]?.functionCall;
@@ -547,7 +516,7 @@ app.post('/webhook', async (req, res) => {
                 conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
                 salvarHistorico(sender, conversa);
             }      
-            else if (functionCall.name === "qualificar_lead") {
+              else if (functionCall.name === "qualificar_lead") {
                 const nomeDoCliente = functionCall.args.nome || "Cliente";
                 const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
                 
@@ -560,11 +529,22 @@ app.post('/webhook', async (req, res) => {
                     observacoes: `Resumo: ${functionCall.args.interesse}\nLink da conversa: ${linkEspelho}`
                 });
 
-                const msg = "Perfeito, acabei de encaminhar seu interesse para nossa equipe de corretores!";
-                await enviarMensagem(sender, msg);
-                conversa.push({ "role": "model", "parts": [{ "text": msg }] });
+                // MENSAGEM 1: Confirmação do CRM
+                const msg1 = "Perfeito, acabei de encaminhar seu interesse para nossa equipe de corretores! ✨";
+                await enviarMensagem(sender, msg1);
+                conversa.push({ "role": "model", "parts": [{ "text": msg1 }] });
+
+                // Espera de 1.5 segundos para parecer natural
+                await new Promise(resolve => setTimeout(resolve, 1500));
+
+                // MENSAGEM 2: O convite para avaliação no Google
+                const msg2 = "Ah, e se estiver satisfeito com o meu atendimento até aqui, te convido a deixar uma avaliação rápida no link abaixo. Ajuda muito o meu trabalho!\nhttps://search.google.com/local/writereview?placeid=ChIJ_w2xUXjfmwAR3DnuGUi-5hQ";
+                await enviarMensagem(sender, msg2);
+                conversa.push({ "role": "model", "parts": [{ "text": msg2 }] });
+
+                // Salva tudo no histórico
                 salvarHistorico(sender, conversa); 
-            } 
+            }
                 else if (functionCall.name === "registrar_reclamacao") {
     const motivo = functionCall.args.motivo;
     
