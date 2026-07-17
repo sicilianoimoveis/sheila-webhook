@@ -7,11 +7,14 @@ const path = require('path');
 const FormData = require('form-data'); // Adicionado para transcrição de áudio
 
 const basicAuth = (req, res, next) => {
-    const auth = { login: "thiagosheila", password: "Ts@171412" }; 
+    // Agora ele busca do seu painel do Railway
+    const loginEnv = process.env.CENTRAL_USER || "admin";
+    const passEnv = process.env.CENTRAL_PASS || "123456";
+    
     const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
     const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
 
-    if (login && password && login === auth.login && password === auth.password) {
+    if (login && password && login === loginEnv && password === passEnv) {
         return next();
     }
     res.set('WWW-Authenticate', 'Basic realm="Acesso Restrito"');
@@ -168,17 +171,15 @@ async function obterUrlMedia(mediaId) {
 
 // NOVO: Função para baixar o áudio e enviar para a OpenAI
 async function transcreverAudio(mediaId) {
+    const filePath = `/tmp/${mediaId}.ogg`; // Mova a variável para fora do try
     try {
         const mediaUrl = await obterUrlMedia(mediaId);
         
-        // Baixa o áudio do WhatsApp
         const audioResponse = await axios.get(mediaUrl, { 
             headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}` }, 
             responseType: 'stream' 
         });
 
-        // Salva temporariamente na pasta /tmp (padrão em hospedagens como Railway)
-        const filePath = `/tmp/${mediaId}.ogg`;
         const writer = fs.createWriteStream(filePath);
         audioResponse.data.pipe(writer);
 
@@ -187,26 +188,26 @@ async function transcreverAudio(mediaId) {
             writer.on('error', reject);
         });
 
-        // Prepara o formulário para enviar à OpenAI
         const form = new FormData();
         form.append('file', fs.createReadStream(filePath));
         form.append('model', 'whisper-1');
 
-        // Envia para a API do Whisper
         const openaiResponse = await axios.post('https://api.openai.com/v1/audio/transcriptions', form, {
             headers: {
                 ...form.getHeaders(),
                 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
             }
         });
-
-        // Apaga o arquivo de áudio temporário para não lotar o servidor
-        fs.unlinkSync(filePath);
         
         return openaiResponse.data.text;
     } catch (error) {
         console.error("Erro na transcrição de áudio:", error.message);
         return null;
+    } finally {
+        // O finally RODA SEMPRE. Se deu sucesso ou se deu erro, ele limpa o disco.
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
     }
 }
 
