@@ -549,8 +549,8 @@ app.post('/webhook', async (req, res) => {
                 // Salva tudo no histórico
                 salvarHistorico(sender, conversa); 
             }
-            ]}]
-        };
+          
+    
                 else if (functionCall.name === "registrar_reclamacao") {
     const motivo = functionCall.args.motivo;
     
