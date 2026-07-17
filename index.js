@@ -465,11 +465,35 @@ app.post('/webhook', async (req, res) => {
         "required": ["intencao"]
     }
 },
-                { 
-                    "name": "qualificar_lead", 
-                    "description": "Chame ao perceber interesse claro em visita ou falar com corretor. Sempre extraia o nome do cliente da conversa.", 
-                    "parameters": { "type": "object", "properties": { "interesse": { "type": "string" }, "nome": { "type": "string" } }, "required": ["interesse", "nome"] } 
-                }
+                else if (functionCall.name === "qualificar_lead") {
+                const nomeDoCliente = functionCall.args.nome || "Cliente";
+                const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
+                
+                // Salva o nome e envia para a central via nova função unificada
+                atualizarIndiceLeads(sender, nomeDoCliente);
+                
+                await enviarLeadParaCRM(sender, {
+                    interesse: functionCall.args.interesse,
+                    mensagem: "Atendimento realizado pela Sheila",
+                    observacoes: `Resumo: ${functionCall.args.interesse}\nLink da conversa: ${linkEspelho}`
+                });
+
+                // MENSAGEM 1: Confirmação do CRM
+                const msg1 = "Perfeito, acabei de encaminhar seu interesse para nossa equipe de corretores! ✨";
+                await enviarMensagem(sender, msg1);
+                conversa.push({ "role": "model", "parts": [{ "text": msg1 }] });
+
+                // Espera de 1.5 segundos para parecer natural
+                await new Promise(resolve => setTimeout(resolve, 1500));
+
+                // MENSAGEM 2: O convite para avaliação no Google
+                const msg2 = "Ah, e se estiver satisfeito com o meu atendimento até aqui, te convido a deixar uma avaliação rápida no link abaixo. Ajuda muito o meu trabalho!\nhttps://search.google.com/local/writereview?placeid=ChIJ_w2xUXjfmwAR3DnuGUi-5hQ";
+                await enviarMensagem(sender, msg2);
+                conversa.push({ "role": "model", "parts": [{ "text": msg2 }] });
+
+                // Salva tudo no histórico
+                salvarHistorico(sender, conversa); 
+            }
             ]}]
         };
 
