@@ -640,7 +640,8 @@ app.post('/webhook', async (req, res) => {
 
                // Extraindo a 'cidade' também
                 const { intencao, cidade, bairro, quartos, precoVendaMax, precoLocacaoMax, tipo, vaga, extras } = functionCall.args;
-                const precoMax = precoVendaMax || precoLocacaoMax || 0;
+               console.log(`LOG_DEBUG: A Sheila está filtrando -> Intenção: ${intencao} | Cidade: ${cidade} | Bairro: ${bairro} | Tipo: ${tipo}`); 
+               const precoMax = precoVendaMax || precoLocacaoMax || 0;
                 
                 const nVagasPedido = parseInt(vaga);
                 const buscaIntencao = normalize(intencao || "");
