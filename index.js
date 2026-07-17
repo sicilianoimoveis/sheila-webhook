@@ -263,12 +263,12 @@ function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId 
     };
     fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
 }
-// --- NOVO: FUNÇÃO CENTRALIZADA DE ENVIO PARA O CRM VIA WEBHOOK ---
+// --- NOVO: FUNÇÃO CENTRALIZADA DE ENVIO PARA O CRM VIA API OFICIAL ---
 async function enviarLeadParaCRM(sender, contexto) {
     const lead = leadsIndex[sender];
     if (!lead) return;
 
-    // 1. Converte a intenção para os padrões do CRM
+    // 1. Converte a intenção para os padrões do CRM (sale ou rent)
     let purposeStr = "sale"; 
     if (contexto.interesse && contexto.interesse.toLowerCase().includes('loca')) {
         purposeStr = "rent";
@@ -280,39 +280,52 @@ async function enviarLeadParaCRM(sender, contexto) {
         buildingId = lead.imoveisInteresse[lead.imoveisInteresse.length - 1]; 
     }
 
-    // 3. Traduz a origem atual do lead para o código numérico
+    // 3. Traduz a origem atual do lead para o código numérico (ex: 5159 para WhatsApp)
     const codigoOrigem = parseInt(ORIGENS[lead.origem] || ORIGENS["whatsapp_direto"]);
 
-    // 4. Monta o Payload. (Enviando os campos antigos e novos simultaneamente para evitar quebra de integração)
+    // 4. Monta o Payload no padrão EXATO da nova documentação
     const payload = {
-        nome: lead.nome || "Cliente",
-        celular: sender,
-        origem: codigoOrigem,
-        mensagem: contexto.mensagem || "Atendimento realizado pela Sheila",
-        observacoes: contexto.observacoes || "",
-        // Campos estruturados
         name: lead.nome || "Cliente",
-        phone: sender,
+        // Limpamos o número para enviar apenas os dígitos, evitando erros na API
+        phone: sender.replace(/\D/g, ''), 
         purpose: purposeStr,
         origin_id: codigoOrigem,
+        origin: lead.origem || "WhatsApp",
+        message: contexto.mensagem || "Atendimento inicial realizado pela Sheila (IA).",
         notes: contexto.observacoes || ""
     };
 
+    // Se a Sheila tiver captado um ID de imóvel válido, injetamos no payload
     if (buildingId) {
         payload.building_id = parseInt(buildingId);
     }
 
     try {
-        await axios.post('https://api.apresenta.me/webhook/integration/5099/ab72a9ac29cc5dba9a32eeb37f45461e', payload);
-        console.log(`LOG_DEBUG: Lead enviado para o CRM com sucesso. Origem: ${codigoOrigem}, Building_ID: ${buildingId || 'Nenhum'}`);
+        const url = "https://api.apresenta.me/persons/leads";
         
+        // Passando o token do Railway no cabeçalho
+        const config = {
+            headers: {
+                "Authorization": `Bearer ${process.env.CRM_API_TOKEN}`,
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+        };
+
+        // Faz o envio usando o Axios (que já usamos no resto do projeto)
+        const response = await axios.post(url, payload, config);
+        
+        console.log(`LOG_DEBUG: Lead enviado via API com sucesso! Origem: ${codigoOrigem}, Building_ID: ${buildingId || 'Nenhum'}, Retorno:`, response.data);
+        
+        // Atualiza a flag para não enviar de novo
         lead.enviadoParaCRM = true;
         atualizarIndiceLeads(sender, lead.nome, lead.origem);
+
     } catch (error) {
-        console.error("ERRO ao enviar para o CRM via Webhook:", error.message);
+        // Log melhorado para capturar o erro exato que o CRM devolver caso algo falhe
+        console.error("ERRO ao enviar para o CRM via API:", error.response?.data || error.message);
     }
 }
-
 // --- ROTAS ---
 app.get('/limpar-historico/:sender', async (req, res) => {
     const { sender } = req.params;
