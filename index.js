@@ -468,6 +468,15 @@ app.post('/webhook', async (req, res) => {
         "required": ["intencao"]
     }
 },
+                                { 
+                    "name": "qualificar_lead", 
+                    "description": "Chame ao perceber interesse claro em visita ou falar com corretor. Sempre extraia o nome do cliente da conversa.", 
+                    "parameters": { "type": "object", "properties": { "interesse": { "type": "string" }, "nome": { "type": "string" } }, "required": ["interesse", "nome"] } 
+                }
+            ]}]
+        };
+
+
                
         const response = await axios.post(url, payloadInicial);
         const contentResponse = response.data?.candidates?.[0]?.content;
