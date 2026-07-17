@@ -264,7 +264,7 @@ function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId 
     fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
 }
 // --- NOVO: FUNÇÃO CENTRALIZADA DE ENVIO PARA O CRM VIA API OFICIAL ---
-async function enviarLeadParaCRM(sender, contexto) {
+async function enviarLeadParaCRM(sender, contexto, idsImoveis = []) {
     const lead = leadsIndex[sender];
     if (!lead) return;
 
@@ -274,36 +274,43 @@ async function enviarLeadParaCRM(sender, contexto) {
         purposeStr = "rent";
     }
 
-    // 2. Resgata o último imóvel que o lead demonstrou interesse
+    // 2. Lógica Inteligente de Imóveis: Pega os IDs que a IA extraiu da conversa
     let buildingId = null;
-    if (lead.imoveisInteresse && lead.imoveisInteresse.length > 0) {
+    let notasAdicionais = "";
+
+    if (idsImoveis && idsImoveis.length > 0) {
+        buildingId = idsImoveis[0]; // O CRM só aceita 1 ID no campo principal, enviamos o primeiro
+        
+        if (idsImoveis.length > 1) {
+            // Se o cliente quer ver mais de um, colocamos um alerta gigante nas notas do corretor!
+            notasAdicionais = `\n\n⚠️ ATENÇÃO CORRETOR: O cliente também tem interesse em visitar os imóveis IDs: ${idsImoveis.join(', ')}`;
+        }
+    } else if (lead.imoveisInteresse && lead.imoveisInteresse.length > 0) {
+        // Fallback: Se a IA não mandou ID, tenta pegar o último da memória antiga
         buildingId = lead.imoveisInteresse[lead.imoveisInteresse.length - 1]; 
     }
 
-    // 3. Traduz a origem atual do lead para o código numérico (ex: 5159 para WhatsApp)
+    // 3. Traduz a origem atual do lead
     const codigoOrigem = parseInt(ORIGENS[lead.origem] || ORIGENS["whatsapp_direto"]);
 
-    // 4. Monta o Payload no padrão EXATO da nova documentação
+    // 4. Monta o Payload no padrão da API
     const payload = {
         name: lead.nome || "Cliente",
-        // Limpamos o número para enviar apenas os dígitos, evitando erros na API
         phone: sender.replace(/\D/g, ''), 
         purpose: purposeStr,
         origin_id: codigoOrigem,
         origin: lead.origem || "WhatsApp",
         message: contexto.mensagem || "Atendimento inicial realizado pela Sheila (IA).",
-        notes: contexto.observacoes || ""
+        // Junta as observações normais com as notas de imóveis extras
+        notes: (contexto.observacoes || "") + notasAdicionais 
     };
 
-    // Se a Sheila tiver captado um ID de imóvel válido, injetamos no payload
     if (buildingId) {
         payload.building_id = parseInt(buildingId);
     }
 
     try {
         const url = "https://api.apresenta.me/persons/leads";
-        
-        // Passando o token do Railway no cabeçalho
         const config = {
             headers: {
                 "Authorization": `Bearer ${process.env.CRM_API_TOKEN}`,
@@ -312,17 +319,12 @@ async function enviarLeadParaCRM(sender, contexto) {
             }
         };
 
-        // Faz o envio usando o Axios (que já usamos no resto do projeto)
         const response = await axios.post(url, payload, config);
+        console.log(`LOG_DEBUG: Lead enviado via API com sucesso! Origem: ${codigoOrigem}, Building_ID: ${buildingId || 'Nenhum'}`);
         
-        console.log(`LOG_DEBUG: Lead enviado via API com sucesso! Origem: ${codigoOrigem}, Building_ID: ${buildingId || 'Nenhum'}, Retorno:`, response.data);
-        
-        // Atualiza a flag para não enviar de novo
         lead.enviadoParaCRM = true;
         atualizarIndiceLeads(sender, lead.nome, lead.origem);
-
     } catch (error) {
-        // Log melhorado para capturar o erro exato que o CRM devolver caso algo falhe
         console.error("ERRO ao enviar para o CRM via API:", error.response?.data || error.message);
     }
 }
@@ -423,88 +425,98 @@ app.post('/webhook', async (req, res) => {
         conversa.push({ "role": "user", "parts": [{ "text": textoCliente }] });
 
         const payloadInicial = {
-            "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT || "Você é a Sheila, corretora da Siciliano Imóveis." }] },
-            "contents": conversa,
-            "tools": [{ "functionDeclarations": [
-                { 
-    "name": "registrar_reclamacao", 
-    "description": "Use IMEDIATAMENTE se o cliente reclamar de mau atendimento, relatar um problema grave (ex: falso corretor) ou cobrar um retorno que não foi dado.", 
-    "parameters": { 
-        "type": "object", 
-        "properties": { 
-            "motivo": { "type": "string", "description": "Resumo do problema relatado pelo cliente." } 
-        }, 
-        "required": ["motivo"] 
-    } 
-},
-                { 
-    "name": "registrar_nome", 
-    "description": "Use esta função IMEDIATAMENTE e de forma silenciosa assim que o cliente informar o nome dele na conversa, não importa qual seja o assunto.", 
-    "parameters": { 
-        "type": "object", 
-        "properties": { "nome": { "type": "string" } }, 
-        "required": ["nome"] 
-    } 
-},
-                { 
-                    "name": "iniciar_captacao", 
-                    "description": "Chamar quando o cliente expressar desejo de vender, alugar ou anunciar o próprio imóvel.", 
-                    "parameters": { "type": "object", "properties": {}, "required": [] } 
-                },
-                { 
-                    "name": "processar_captacao", 
-                    "description": "Use para registrar o endereço ou localização quando o cliente fornecer durante a captação.", 
-                    "parameters": { 
-                        "type": "object", 
-                        "properties": { "endereco": { "type": "string", "description": "O endereço do imóvel" } }, 
-                        "required": ["endereco"] 
-                    } 
-                },
-                { 
-                    "name": "buscar_imovel", 
-                    "description": "Consulta dados técnicos completos de um imóvel (valores de venda/locação, rua sem número, suites, vagas, features) pelo código ou URL.", 
-                    "parameters": { "type": "object", "properties": { "termo_de_busca": { "type": "string" } }, "required": ["termo_de_busca"] } 
-                },
-              {
-                    "name": "buscar_imoveis_filtros",
-                    "description": "Busca imóveis com filtros detalhados de intenção, cidade, bairro, tipo, orçamento e características.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "intencao": { "type": "string", "description": "A intenção do cliente: use exatamente 'compra' ou 'aluguel'." },
-                            "tipo": { "type": "string", "description": "O tipo do imóvel: 'apartamento', 'loja', 'sala comercial', etc." },
-                           "cidade": { 
-                                "type": "string", 
-                                "description": "A cidade de preferência. ATENÇÃO: NUNCA inclua o nome do bairro aqui. Se o cliente disser 'Centro de Niterói', envie apenas 'Niterói'." 
-                            },
-                            "bairro": { 
-                                "type": "string", 
-                                "description": "O bairro desejado. ATENÇÃO: Se o cliente disser 'Centro de Niterói', você DEVE preencher este campo com 'Centro'." 
-                            },                 
-            "rua": { "type": "string", "description": "Nome da rua, avenida ou logradouro para filtrar os imóveis. Ex: 'Presidente Backer', 'Miguel de Frias'." },
-            "quartos": { "type": "number", "description": "Número mínimo de quartos desejado." },
-            "vaga": { 
-                "type": "integer", 
-                "description": "Quantidade de vagas. Se o cliente apenas disser 'quero com vaga', envie 1. Se definir quantidade (ex: 2), envie o número exato. Se não mencionar, não envie este campo." 
-            },
-            "precoVendaMax": { "type": "number", "description": "Valor máximo para compra." },
-            "precoLocacaoMax": { "type": "number", "description": "Valor máximo para aluguel." },
-            "extras": { "type": "array", "items": { "type": "string" }, "description": "Lista de características extras." }
+    "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT || "Você é a Sheila, corretora da Siciliano Imóveis." }] },
+    "contents": conversa,
+    "tools": [{ "functionDeclarations": [
+        { 
+            "name": "registrar_reclamacao", 
+            "description": "Use IMEDIATAMENTE se o cliente reclamar de mau atendimento, relatar um problema grave (ex: falso corretor) ou cobrar um retorno que não foi dado.", 
+            "parameters": { 
+                "type": "object", 
+                "properties": { 
+                    "motivo": { "type": "string", "description": "Resumo do problema relatado pelo cliente." } 
+                }, 
+                "required": ["motivo"] 
+            } 
         },
-        "required": ["intencao"]
-    }
-},
-                                { 
-                    "name": "qualificar_lead", 
-                    "description": "Chame ao perceber interesse claro em visita ou falar com corretor. Sempre extraia o nome do cliente da conversa.", 
-                    "parameters": { "type": "object", "properties": { "interesse": { "type": "string" }, "nome": { "type": "string" } }, "required": ["interesse", "nome"] } 
-                }
-            ]}]
-        };
+        { 
+            "name": "registrar_nome", 
+            "description": "Use esta função IMEDIATAMENTE e de forma silenciosa assim que o cliente informar o nome dele na conversa, não importa qual seja o assunto.", 
+            "parameters": { 
+                "type": "object", 
+                "properties": { "nome": { "type": "string" } }, 
+                "required": ["nome"] 
+            } 
+        },
+        { 
+            "name": "iniciar_captacao", 
+            "description": "Chamar quando o cliente expressar desejo de vender, alugar ou anunciar o próprio imóvel.", 
+            "parameters": { "type": "object", "properties": {}, "required": [] } 
+        },
+        { 
+            "name": "processar_captacao", 
+            "description": "Use para registrar o endereço ou localização quando o cliente fornecer durante a captação.", 
+            "parameters": { 
+                "type": "object", 
+                "properties": { "endereco": { "type": "string", "description": "O endereço do imóvel" } }, 
+                "required": ["endereco"] 
+            } 
+        },
+        { 
+            "name": "buscar_imovel", 
+            "description": "Consulta dados técnicos completos de um imóvel (valores de venda/locação, rua sem número, suites, vagas, features) pelo código ou URL.", 
+            "parameters": { "type": "object", "properties": { "termo_de_busca": { "type": "string" } }, "required": ["termo_de_busca"] } 
+        },
+        {
+            "name": "buscar_imoveis_filtros",
+            "description": "Busca imóveis com filtros detalhados de intenção, cidade, bairro, tipo, orçamento e características.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "intencao": { "type": "string", "description": "A intenção do cliente: use exatamente 'compra' ou 'aluguel'." },
+                    "tipo": { "type": "string", "description": "O tipo do imóvel: 'apartamento', 'loja', 'sala comercial', etc." },
+                    "cidade": { 
+                        "type": "string", 
+                        "description": "A cidade de preferência. ATENÇÃO: NUNCA inclua o nome do bairro aqui. Se o cliente disser 'Centro de Niterói', envie apenas 'Niterói'." 
+                    },
+                    "bairro": { 
+                        "type": "string", 
+                        "description": "O bairro desejado. ATENÇÃO: Se o cliente disser 'Centro de Niterói', você DEVE preencher este campo com 'Centro'." 
+                    },                 
+                    "rua": { "type": "string", "description": "Nome da rua, avenida ou logradouro para filtrar os imóveis. Ex: 'Presidente Backer', 'Miguel de Frias'." },
+                    "quartos": { "type": "number", "description": "Número mínimo de quartos desejado." },
+                    "vaga": { 
+                        "type": "integer", 
+                        "description": "Quantidade de vagas. Se o cliente apenas disser 'quero com vaga', envie 1. Se definir quantidade (ex: 2), envie o número exato. Se não mencionar, não envie este campo." 
+                    },
+                    "precoVendaMax": { "type": "number", "description": "Valor máximo para compra." },
+                    "precoLocacaoMax": { "type": "number", "description": "Valor máximo para aluguel." },
+                    "extras": { "type": "array", "items": { "type": "string" }, "description": "Lista de características extras." }
+                },
+                "required": ["intencao"]
+            }
+        },
+        { 
+            "name": "qualificar_lead", 
+            "description": "Chame ao perceber interesse claro em visita ou falar com corretor. Sempre extraia o nome do cliente da conversa.", 
+            "parameters": { 
+                "type": "object", 
+                "properties": { 
+                    "interesse": { "type": "string" }, 
+                    "nome": { "type": "string" },
+                    "ids_imoveis": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Lista com os códigos (IDs) dos imóveis que o cliente deseja visitar ou demonstrou interesse na conversa atual."
+                    }
+                }, 
+                "required": ["interesse", "nome"] 
+            } 
+        }
+    ]}] // <-- ESSAS SÃO AS CHAVES QUE FALTAVAM AQUI!
+}; // <-- E O PONTO E VÍRGULA FECHANDO O PAYLOAD AQUI!
 
-
-               
-        const response = await axios.post(url, payloadInicial);
+const response = await axios.post(url, payloadInicial);
         const contentResponse = response.data?.candidates?.[0]?.content;
         const functionCall = contentResponse?.parts?.[0]?.functionCall;
 
@@ -551,33 +563,32 @@ app.post('/webhook', async (req, res) => {
                 conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
                 salvarHistorico(sender, conversa);
             }      
-              else if (functionCall.name === "qualificar_lead") {
+             else if (functionCall.name === "qualificar_lead") {
                 const nomeDoCliente = functionCall.args.nome || "Cliente";
+                const idsExtraidos = functionCall.args.ids_imoveis || []; // Puxa os IDs que a Sheila detectou
+                
                 const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
                 
-                // Salva o nome e envia para a central via nova função unificada
+                // Salva o nome
                 atualizarIndiceLeads(sender, nomeDoCliente);
                 
+                // Dispara pro CRM passando a lista de IDs capturada!
                 await enviarLeadParaCRM(sender, {
                     interesse: functionCall.args.interesse,
                     mensagem: "Atendimento realizado pela Sheila",
                     observacoes: `Resumo: ${functionCall.args.interesse}\nLink da conversa: ${linkEspelho}`
-                });
+                }, idsExtraidos);
 
-                // MENSAGEM 1: Confirmação do CRM
                 const msg1 = "Perfeito, acabei de encaminhar seu interesse para nossa equipe de corretores! ✨";
                 await enviarMensagem(sender, msg1);
                 conversa.push({ "role": "model", "parts": [{ "text": msg1 }] });
 
-                // Espera de 1.5 segundos para parecer natural
                 await new Promise(resolve => setTimeout(resolve, 1500));
 
-                // MENSAGEM 2: O convite para avaliação no Google
                 const msg2 = "Ah, e se estiver satisfeito com o meu atendimento até aqui, te convido a deixar uma avaliação rápida no link abaixo. Ajuda muito o meu trabalho!\nhttps://search.google.com/local/writereview?placeid=ChIJ_w2xUXjfmwAR3DnuGUi-5hQ";
                 await enviarMensagem(sender, msg2);
                 conversa.push({ "role": "model", "parts": [{ "text": msg2 }] });
 
-                // Salva tudo no histórico
                 salvarHistorico(sender, conversa); 
             }
                 else if (functionCall.name === "registrar_reclamacao") {
