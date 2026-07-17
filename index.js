@@ -452,15 +452,16 @@ app.post('/webhook', async (req, res) => {
                     "description": "Consulta dados técnicos completos de um imóvel (valores de venda/locação, rua sem número, suites, vagas, features) pelo código ou URL.", 
                     "parameters": { "type": "object", "properties": { "termo_de_busca": { "type": "string" } }, "required": ["termo_de_busca"] } 
                 },
-               {
-    "name": "buscar_imoveis_filtros",
-    "description": "Busca imóveis com filtros detalhados de intenção, bairro, tipo, orçamento, rua e características.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "intencao": { "type": "string", "description": "A intenção do cliente: use exatamente 'compra' ou 'aluguel'." },
-            "tipo": { "type": "string", "description": "O tipo do imóvel: 'apartamento', 'cobertura', etc." },
-            "bairro": { "type": "string", "description": "O bairro de preferência do cliente." },
+              {
+                    "name": "buscar_imoveis_filtros",
+                    "description": "Busca imóveis com filtros detalhados de intenção, cidade, bairro, tipo, orçamento e características.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "intencao": { "type": "string", "description": "A intenção do cliente: use exatamente 'compra' ou 'aluguel'." },
+                            "tipo": { "type": "string", "description": "O tipo do imóvel: 'apartamento', 'loja', 'sala comercial', etc." },
+                            "cidade": { "type": "string", "description": "A cidade de preferência (ex: Niterói, Rio de Janeiro)." }, // <--- NOVO AQUI
+                            "bairro": { "type": "string", "description": "O bairro de preferência do cliente." },                            
             "rua": { "type": "string", "description": "Nome da rua, avenida ou logradouro para filtrar os imóveis. Ex: 'Presidente Backer', 'Miguel de Frias'." },
             "quartos": { "type": "number", "description": "Número mínimo de quartos desejado." },
             "vaga": { 
@@ -631,8 +632,8 @@ app.post('/webhook', async (req, res) => {
                     "compra": "forsale", "venda": "forsale", "aluguel": "forrent", "locacao": "forrent"
                 };
 
-                // 1. ADICIONADO A VARIÁVEL 'rua' AQUI
-                const { intencao, bairro, rua, quartos, precoVendaMax, precoLocacaoMax, tipo, vaga, extras } = functionCall.args;
+               // Extraindo a 'cidade' também
+                const { intencao, cidade, bairro, quartos, precoVendaMax, precoLocacaoMax, tipo, vaga, extras } = functionCall.args;
                 const precoMax = precoVendaMax || precoLocacaoMax || 0;
                 
                 const nVagasPedido = parseInt(vaga);
@@ -641,28 +642,35 @@ app.post('/webhook', async (req, res) => {
                 const isLocacao = buscaIntencao.includes("aluguel") || buscaIntencao.includes("locacao") || buscaIntencao.includes("rent");
                 
                 const filtra = (i, modoExato) => {
+                    const cidadeImovel = normalize(v(i.Location?.City)); // <--- Puxa a cidade do XML
                     const bairroImovel = normalize(v(i.Location?.Neighborhood));
                     const tipoImovelXML = normalize(v(i.Details?.PropertyType));
                     const transacaoXML = normalize(v(i.TransactionType));
                     const descricao = normalize(v(i.Details?.Description));
-                    
-                    // 2. ADICIONADO: Puxando o endereço do imóvel para a busca
-                    const enderecoImovel = normalize(obterEnderecoSeguro(i)); 
-                    
                     const pV = parseFloat(v(i.Details?.ListPrice)) || 0;
                     const pL = parseFloat(v(i.Details?.RentalPrice)) || 0;
                     const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
 
-                    const nIntencaoBusca = mapaIntencao[normalize(intencao)] || normalize(intencao);
+                    const nIntencaoBusca = mapaTipos[normalize(intencao)] || normalize(intencao);
                     const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
 
+                    // Filtros de Localização
+                    const matchCidade = !cidade || cidadeImovel.includes(normalize(cidade)); // <--- Filtro de cidade
                     const matchBairro = !bairro || bairroImovel.includes(normalize(bairro));
                     
-                    // 3. ADICIONADO: Lógica do Match Rua
-                    const matchRua = !rua || enderecoImovel.includes(normalize(rua)); 
-                    
                     const matchIntencao = !intencao || (isVenda && transacaoXML.includes("sale")) || (isLocacao && transacaoXML.includes("rent"));
-                    const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
+                    
+                    // CORREÇÃO DO TIPO (Loja vs Sala Comercial)
+                    let matchTipo = true;
+                    if (tipo) {
+                        if (mapaTipos[normalize(tipo)]) {
+                            // Se mapeamos o tipo (ex: loja = commercial/loja), exige que o XML seja EXATAMENTE esse, ignorando o que tá escrito na descrição
+                            matchTipo = tipoImovelXML.includes(nTipoBusca);
+                        } else {
+                            // Se for algo não mapeado, aí sim procura na descrição
+                            matchTipo = tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
+                        }
+                    }
                     
                     let matchPreco = true;
                     if (precoMax > 0) {
@@ -680,8 +688,8 @@ app.post('/webhook', async (req, res) => {
                         
                     const matchExtras = !extras || extras.every(extra => descricao.includes(normalize(extra)) || features.includes(normalize(extra)));
                     
-                    // 4. ADICIONADO: matchRua na validação final
-                    return matchBairro && matchRua && matchIntencao && matchTipo && matchQuartos && matchPreco && matchVaga && matchExtras;
+                    // Retorna incluindo matchCidade
+                    return matchCidade && matchBairro && matchIntencao && matchTipo && matchQuartos && matchPreco && matchVaga && matchExtras;
                 };
                 
                 let resultados = cacheImoveis.filter(i => filtra(i, true));
