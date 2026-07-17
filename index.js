@@ -460,8 +460,14 @@ app.post('/webhook', async (req, res) => {
                         "properties": {
                             "intencao": { "type": "string", "description": "A intenção do cliente: use exatamente 'compra' ou 'aluguel'." },
                             "tipo": { "type": "string", "description": "O tipo do imóvel: 'apartamento', 'loja', 'sala comercial', etc." },
-                            "cidade": { "type": "string", "description": "A cidade de preferência (ex: Niterói, Rio de Janeiro)." }, // <--- NOVO AQUI
-                            "bairro": { "type": "string", "description": "O bairro de preferência do cliente." },                            
+                           "cidade": { 
+                                "type": "string", 
+                                "description": "A cidade de preferência. ATENÇÃO: NUNCA inclua o nome do bairro aqui. Se o cliente disser 'Centro de Niterói', envie apenas 'Niterói'." 
+                            },
+                            "bairro": { 
+                                "type": "string", 
+                                "description": "O bairro desejado. ATENÇÃO: Se o cliente disser 'Centro de Niterói', você DEVE preencher este campo com 'Centro'." 
+                            },                 
             "rua": { "type": "string", "description": "Nome da rua, avenida ou logradouro para filtrar os imóveis. Ex: 'Presidente Backer', 'Miguel de Frias'." },
             "quartos": { "type": "number", "description": "Número mínimo de quartos desejado." },
             "vaga": { 
