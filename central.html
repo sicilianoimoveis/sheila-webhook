@@ -4,6 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Central de Leads - Siciliano Imóveis</title>
+    <!-- Configurações para Android/Chrome -->
+    <meta name="theme-color" content="#1a1f3c">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="icon" sizes="192x192" href="https://img.apre.me/M7UtVktPLcjSy00sSk8sKc7LVMhPz8-RL07NyUyzzVSztDQwtU0GAA.jpeg">
+    <link rel="icon" sizes="512x512" href="https://img.apre.me/M7UtVktPLcjSy00sSk8sKc7LVMhPz8-RL07NyUyzzVSztDQwtU0GAA.jpeg">
+
+    <!-- Configurações para iOS/iPhone (Safari) -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Central Leads">
+    <link rel="apple-touch-icon" href="https://img.apre.me/M7UtVktPLcjSy00sSk8sKc7LVMhPz8-RL07NyUyzzVSztDQwtU0GAA.jpeg">
     <style>
         :root { 
             --primary: #1a1f3c; 
@@ -26,6 +37,10 @@
         
         .card { background: var(--bg-card); padding: 16px; margin-bottom: 12px; border-radius: 8px; border-left: 5px solid #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.1); cursor: pointer; transition: 0.2s; }
         .card:hover { border-left-color: var(--primary); }
+        /* Estilos para o alerta de urgência/reclamação */
+        .card.urgente { border-left-color: #ef4444; background-color: #fef2f2; }
+        .card.urgente h3 { color: #dc2626; }
+        .tag.tag-urgente { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; }
         .card h3 { margin: 0 0 4px 0; color: var(--primary); font-size: 15px; }
         .tag-group { display: flex; gap: 5px; margin-bottom: 5px; }
         .tag { padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; background: #e2e8f0; text-transform: uppercase; }
@@ -103,13 +118,20 @@
                     }).forEach(lead => {
                         const date = new Date(lead.ultimaInteracao).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
                         const int = lead.categoria === 'captacao' ? 'Captação' : (lead.purpose === 'rent' ? 'Aluguel' : 'Compra');
+                        
                         const card = document.createElement('div');
-                        card.className = 'card';
+                        // Se o lead tiver o status urgente, adiciona a classe CSS "urgente" no card
+                        card.className = lead.statusUrgente ? 'card urgente' : 'card';
+                        
+                        // Cria a tag visual de alerta se for urgente
+                        const tagUrgente = lead.statusUrgente ? `<span class="tag tag-urgente">🚨 URGENTE</span>` : '';
+
                         card.innerHTML = `
                             <div onclick="abrirChat('${lead.sender}')">
                                 <div class="tag-group">
                                     <span class="tag">${int}</span>
                                     <span class="tag" style="background:#dbeafe">${lead.origem}</span>
+                                    ${tagUrgente}
                                 </div>
                                 <h3>${lead.nome}</h3>
                                 <p style="font-size: 11px">Tel: ${lead.sender}</p>
