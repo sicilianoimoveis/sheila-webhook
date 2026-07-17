@@ -7,11 +7,14 @@ const path = require('path');
 const FormData = require('form-data'); // Adicionado para transcrição de áudio
 
 const basicAuth = (req, res, next) => {
-    const auth = { login: "thiagosheila", password: "Ts@171412" }; 
+    // Agora ele busca do seu painel do Railway
+    const loginEnv = process.env.CENTRAL_USER || "admin";
+    const passEnv = process.env.CENTRAL_PASS || "123456";
+    
     const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
     const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
 
-    if (login && password && login === auth.login && password === auth.password) {
+    if (login && password && login === loginEnv && password === passEnv) {
         return next();
     }
     res.set('WWW-Authenticate', 'Basic realm="Acesso Restrito"');
@@ -218,6 +221,8 @@ let leadsIndex = {};
 
 function obterHistorico(sender) {
     if (!historicos[sender]) return [];
+    
+    // RETORNA APENAS 'role' E 'parts' PARA NÃO QUEBRAR A API DO GEMINI
     return historicos[sender].map(m => ({
         role: m.role,
         parts: Array.isArray(m.parts) ? m.parts : [{ text: m.text || "" }]
@@ -225,7 +230,18 @@ function obterHistorico(sender) {
 }
 
 function salvarHistorico(sender, conversa) {
-    historicos[sender] = conversa.map(m => ({ role: m.role, parts: m.parts }));
+    // Puxa o histórico antigo da memória para não perder as datas das mensagens passadas
+    const historicoAntigo = historicos[sender] || [];
+    
+    historicos[sender] = conversa.map((m, index) => { 
+        const msgAntiga = historicoAntigo[index];
+        return {
+            role: m.role, 
+            parts: m.parts,
+            // Mantém a hora original se for uma mensagem antiga, ou cria uma nova se for mensagem nova
+            timestamp: msgAntiga?.timestamp || new Date().toISOString() 
+        };
+    });
     fs.writeFileSync(FILE_PATH, JSON.stringify(historicos, null, 2));
 }
 
@@ -247,7 +263,6 @@ function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId 
     };
     fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
 }
-
 // --- NOVO: FUNÇÃO CENTRALIZADA DE ENVIO PARA O CRM VIA WEBHOOK ---
 async function enviarLeadParaCRM(sender, contexto) {
     const lead = leadsIndex[sender];
@@ -336,11 +351,17 @@ app.get('/chat/:sender', (req, res) => {
     <div class="lead-info"><strong>Cliente:</strong> ${nomeLead}<br><small>${sender}</small><br><a href="https://wa.me/${sender}" style="color:#075e54;">Enviar WhatsApp</a></div>
     ${mensagensFiltradas.map(m => {
         const text = m.parts && m.parts[0] ? m.parts[0].text : (m.text || "");
-        return `<div class="msg ${m.role}">${text}<span class="time">${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit'})}</span></div>`;
+        
+        // CORREÇÃO DA DATA: Usa a hora salva. Se for uma mensagem antiga (sem data), usa a atual como fallback para não quebrar.
+        const dataMsg = m.timestamp ? new Date(m.timestamp) : new Date();
+        const timeString = dataMsg.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit'});
+
+        return `<div class="msg ${m.role}">${text}<span class="time">${timeString}</span></div>`;
     }).join('')}</body></html>`;
 
     res.send(html);
 });
+
 
 app.get('/leads', (req, res) => {
     if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) return res.status(403).send("Acesso negado.");
@@ -393,6 +414,26 @@ app.post('/webhook', async (req, res) => {
             "contents": conversa,
             "tools": [{ "functionDeclarations": [
                 { 
+    "name": "registrar_reclamacao", 
+    "description": "Use IMEDIATAMENTE se o cliente reclamar de mau atendimento, relatar um problema grave (ex: falso corretor) ou cobrar um retorno que não foi dado.", 
+    "parameters": { 
+        "type": "object", 
+        "properties": { 
+            "motivo": { "type": "string", "description": "Resumo do problema relatado pelo cliente." } 
+        }, 
+        "required": ["motivo"] 
+    } 
+},
+                { 
+    "name": "registrar_nome", 
+    "description": "Use esta função IMEDIATAMENTE e de forma silenciosa assim que o cliente informar o nome dele na conversa, não importa qual seja o assunto.", 
+    "parameters": { 
+        "type": "object", 
+        "properties": { "nome": { "type": "string" } }, 
+        "required": ["nome"] 
+    } 
+},
+                { 
                     "name": "iniciar_captacao", 
                     "description": "Chamar quando o cliente expressar desejo de vender, alugar ou anunciar o próprio imóvel.", 
                     "parameters": { "type": "object", "properties": {}, "required": [] } 
@@ -411,28 +452,29 @@ app.post('/webhook', async (req, res) => {
                     "description": "Consulta dados técnicos completos de um imóvel (valores de venda/locação, rua sem número, suites, vagas, features) pelo código ou URL.", 
                     "parameters": { "type": "object", "properties": { "termo_de_busca": { "type": "string" } }, "required": ["termo_de_busca"] } 
                 },
-                {
-                    "name": "buscar_imoveis_filtros",
-                    "description": "Busca imóveis com filtros detalhados de intenção, bairro, tipo, orçamento e características.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "intencao": { "type": "string", "description": "A intenção do cliente: use exatamente 'compra' ou 'aluguel'." },
-                            "tipo": { "type": "string", "description": "O tipo do imóvel: 'apartamento', 'cobertura', etc." },
-                            "bairro": { "type": "string", "description": "O bairro de preferência do cliente." },
-                            "quartos": { "type": "number", "description": "Número mínimo de quartos desejado." },
-                            "vaga": { 
-                                "type": "integer", 
-                                "description": "Quantidade de vagas. Se o cliente apenas disser 'quero com vaga', envie 1. Se definir quantidade (ex: 2), envie o número exato. Se não mencionar, não envie este campo." 
-                            },
-                            "precoVendaMax": { "type": "number", "description": "Valor máximo para compra." },
-                            "precoLocacaoMax": { "type": "number", "description": "Valor máximo para aluguel." },
-                            "extras": { "type": "array", "items": { "type": "string" }, "description": "Lista de características extras." }
-                        },
-                        "required": ["intencao"]
-                    }
-                },
-                { 
+               {
+    "name": "buscar_imoveis_filtros",
+    "description": "Busca imóveis com filtros detalhados de intenção, bairro, tipo, orçamento, rua e características.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "intencao": { "type": "string", "description": "A intenção do cliente: use exatamente 'compra' ou 'aluguel'." },
+            "tipo": { "type": "string", "description": "O tipo do imóvel: 'apartamento', 'cobertura', etc." },
+            "bairro": { "type": "string", "description": "O bairro de preferência do cliente." },
+            "rua": { "type": "string", "description": "Nome da rua, avenida ou logradouro para filtrar os imóveis. Ex: 'Presidente Backer', 'Miguel de Frias'." },
+            "quartos": { "type": "number", "description": "Número mínimo de quartos desejado." },
+            "vaga": { 
+                "type": "integer", 
+                "description": "Quantidade de vagas. Se o cliente apenas disser 'quero com vaga', envie 1. Se definir quantidade (ex: 2), envie o número exato. Se não mencionar, não envie este campo." 
+            },
+            "precoVendaMax": { "type": "number", "description": "Valor máximo para compra." },
+            "precoLocacaoMax": { "type": "number", "description": "Valor máximo para aluguel." },
+            "extras": { "type": "array", "items": { "type": "string" }, "description": "Lista de características extras." }
+        },
+        "required": ["intencao"]
+    }
+},
+                                { 
                     "name": "qualificar_lead", 
                     "description": "Chame ao perceber interesse claro em visita ou falar com corretor. Sempre extraia o nome do cliente da conversa.", 
                     "parameters": { "type": "object", "properties": { "interesse": { "type": "string" }, "nome": { "type": "string" } }, "required": ["interesse", "nome"] } 
@@ -440,6 +482,8 @@ app.post('/webhook', async (req, res) => {
             ]}]
         };
 
+
+               
         const response = await axios.post(url, payloadInicial);
         const contentResponse = response.data?.candidates?.[0]?.content;
         const functionCall = contentResponse?.parts?.[0]?.functionCall;
@@ -458,6 +502,24 @@ app.post('/webhook', async (req, res) => {
                 conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
                 salvarHistorico(sender, conversa);
             }
+                else if (functionCall.name === "registrar_nome") {
+    const nomeDoCliente = functionCall.args.nome;
+    
+    // 1. Atualiza apenas o nome no seu banco de dados (não envia pro CRM)
+    atualizarIndiceLeads(sender, nomeDoCliente);
+    
+    // 2. Avisa a Sheila que o nome foi salvo e pede para ela continuar o papo
+    conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: O nome '${nomeDoCliente}' foi salvo no sistema. Agora responda com empatia e naturalmente ao que o cliente acabou de falar.` }] });
+    
+    const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
+    const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    
+    if (texto) {
+        await enviarMensagem(sender, texto);
+        conversa.push({ "role": "model", "parts": [{ "text": texto }] });
+        salvarHistorico(sender, conversa);
+    }
+}
             else if (functionCall.name === "processar_captacao") {
                 const { endereco } = functionCall.args;
                 leadsIndex[sender].categoria = 'processado'; 
@@ -469,7 +531,7 @@ app.post('/webhook', async (req, res) => {
                 conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
                 salvarHistorico(sender, conversa);
             }      
-            else if (functionCall.name === "qualificar_lead") {
+              else if (functionCall.name === "qualificar_lead") {
                 const nomeDoCliente = functionCall.args.nome || "Cliente";
                 const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
                 
@@ -482,11 +544,49 @@ app.post('/webhook', async (req, res) => {
                     observacoes: `Resumo: ${functionCall.args.interesse}\nLink da conversa: ${linkEspelho}`
                 });
 
-                const msg = "Perfeito, acabei de encaminhar seu interesse para nossa equipe de corretores!";
-                await enviarMensagem(sender, msg);
-                conversa.push({ "role": "model", "parts": [{ "text": msg }] });
+                // MENSAGEM 1: Confirmação do CRM
+                const msg1 = "Perfeito, acabei de encaminhar seu interesse para nossa equipe de corretores! ✨";
+                await enviarMensagem(sender, msg1);
+                conversa.push({ "role": "model", "parts": [{ "text": msg1 }] });
+
+                // Espera de 1.5 segundos para parecer natural
+                await new Promise(resolve => setTimeout(resolve, 1500));
+
+                // MENSAGEM 2: O convite para avaliação no Google
+                const msg2 = "Ah, e se estiver satisfeito com o meu atendimento até aqui, te convido a deixar uma avaliação rápida no link abaixo. Ajuda muito o meu trabalho!\nhttps://search.google.com/local/writereview?placeid=ChIJ_w2xUXjfmwAR3DnuGUi-5hQ";
+                await enviarMensagem(sender, msg2);
+                conversa.push({ "role": "model", "parts": [{ "text": msg2 }] });
+
+                // Salva tudo no histórico
                 salvarHistorico(sender, conversa); 
-            } 
+            }
+                else if (functionCall.name === "registrar_reclamacao") {
+    const motivo = functionCall.args.motivo;
+    
+    // ATENÇÃO: Coloque o SEU número de WhatsApp aqui (com 55 e DDD, igual no sistema)
+    const numeroGerencia = "5521985559544"; 
+
+    // 1. Marca o lead com status de urgência no banco de dados
+    if (!leadsIndex[sender]) atualizarIndiceLeads(sender, null);
+    leadsIndex[sender].statusUrgente = true;
+    fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
+
+    // 2. Dispara o alerta para o SEU WhatsApp
+    const alerta = `🚨 *ALERTA DE RECLAMAÇÃO/COBRANÇA* 🚨\n\n*Cliente:* ${leadsIndex[sender]?.nome || sender}\n*Motivo:* ${motivo}\n*Acesse o chat:* https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
+    await enviarMensagem(numeroGerencia, alerta);
+
+    // 3. Pede para a Sheila acalmar o cliente
+    conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: O alerta foi enviado com sucesso para a diretoria da Siciliano. Agora, peça desculpas ao cliente de forma muito empática, avise que o caso acabou de ser escalado para a gerência e que entraremos em contato com urgência para resolver.` }] });
+    
+    const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
+    const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    
+    if (texto) {
+        await enviarMensagem(sender, texto);
+        conversa.push({ "role": "model", "parts": [{ "text": texto }] });
+        salvarHistorico(sender, conversa);
+    }
+}
             else if (functionCall.name === "buscar_imovel") {
                 const termo = functionCall.args.termo_de_busca;
                 const imovel = cacheImoveis.find(i => String(i.ListingID) === String(termo) || (i.DetailViewUrl && i.DetailViewUrl.includes(termo)));
@@ -513,7 +613,7 @@ app.post('/webhook', async (req, res) => {
                     salvarHistorico(sender, conversa); 
                 }
             } 
-            else if (functionCall.name === "buscar_imoveis_filtros") {
+           else if (functionCall.name === "buscar_imoveis_filtros") {
                 const normalize = (str) => {
                     if (!str) return "";
                     return String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[-\s]/g, "");
@@ -531,7 +631,8 @@ app.post('/webhook', async (req, res) => {
                     "compra": "forsale", "venda": "forsale", "aluguel": "forrent", "locacao": "forrent"
                 };
 
-                const { intencao, bairro, quartos, precoVendaMax, precoLocacaoMax, tipo, vaga, extras } = functionCall.args;
+                // 1. ADICIONADO A VARIÁVEL 'rua' AQUI
+                const { intencao, bairro, rua, quartos, precoVendaMax, precoLocacaoMax, tipo, vaga, extras } = functionCall.args;
                 const precoMax = precoVendaMax || precoLocacaoMax || 0;
                 
                 const nVagasPedido = parseInt(vaga);
@@ -544,6 +645,10 @@ app.post('/webhook', async (req, res) => {
                     const tipoImovelXML = normalize(v(i.Details?.PropertyType));
                     const transacaoXML = normalize(v(i.TransactionType));
                     const descricao = normalize(v(i.Details?.Description));
+                    
+                    // 2. ADICIONADO: Puxando o endereço do imóvel para a busca
+                    const enderecoImovel = normalize(obterEnderecoSeguro(i)); 
+                    
                     const pV = parseFloat(v(i.Details?.ListPrice)) || 0;
                     const pL = parseFloat(v(i.Details?.RentalPrice)) || 0;
                     const qteQuartos = parseInt(v(i.Details?.Bedrooms)) || 0;
@@ -552,6 +657,10 @@ app.post('/webhook', async (req, res) => {
                     const nTipoBusca = mapaTipos[normalize(tipo)] || normalize(tipo);
 
                     const matchBairro = !bairro || bairroImovel.includes(normalize(bairro));
+                    
+                    // 3. ADICIONADO: Lógica do Match Rua
+                    const matchRua = !rua || enderecoImovel.includes(normalize(rua)); 
+                    
                     const matchIntencao = !intencao || (isVenda && transacaoXML.includes("sale")) || (isLocacao && transacaoXML.includes("rent"));
                     const matchTipo = !tipo || tipoImovelXML.includes(nTipoBusca) || descricao.includes(normalize(tipo));
                     
@@ -571,7 +680,8 @@ app.post('/webhook', async (req, res) => {
                         
                     const matchExtras = !extras || extras.every(extra => descricao.includes(normalize(extra)) || features.includes(normalize(extra)));
                     
-                    return matchBairro && matchIntencao && matchTipo && matchQuartos && matchPreco && matchVaga && matchExtras;
+                    // 4. ADICIONADO: matchRua na validação final
+                    return matchBairro && matchRua && matchIntencao && matchTipo && matchQuartos && matchPreco && matchVaga && matchExtras;
                 };
                 
                 let resultados = cacheImoveis.filter(i => filtra(i, true));
