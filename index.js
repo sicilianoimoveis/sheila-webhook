@@ -716,14 +716,23 @@ const response = await axios.post(url, payloadInicial);
                 else if (functionCall.name === "gerar_cotacao_seguro") {
                 const dadosCliente = functionCall.args;
                 
-                // 1. Acha o imóvel no cache para puxar o valor do aluguel
+                // Acha o imóvel no cache para puxar dados
                 const imovelCotado = cacheImoveis.find(i => String(i.ListingID) === String(dadosCliente.id_imovel));
                 
-                // 2. Dispara a API da Sigafy silenciosamente
+                // --- NOVOS LOGS AQUI ---
+                console.log(`\nLOG_DEBUG: Iniciando cotação Sigafy...`);
+                console.log(`LOG_DEBUG: Dados enviados pela Sheila:`, JSON.stringify(dadosCliente, null, 2));
+                
+                // Dispara a API da Sigafy silenciosamente
                 const resultadoCotacao = await solicitarCotacaoSigafy(dadosCliente, imovelCotado);
                 
-                // 3. Salva a aprovação na memória do Lead para ir pro CRM depois
+                // --- LOG DA RESPOSTA DA API ---
+                console.log(`LOG_DEBUG: Resposta recebida da Sigafy:`, JSON.stringify(resultadoCotacao, null, 2));
+                console.log(`----------------------------------------\n`);
+
+                // Salva a aprovação na memória do Lead para ir pro CRM depois
                 if (!leadsIndex[sender]) atualizarIndiceLeads(sender, dadosCliente.nome);
+
                 leadsIndex[sender].dadosSeguro = {
                     cpf: dadosCliente.cpf,
                     status: resultadoCotacao ? "Cotação Gerada" : "Falha na Cotação",
