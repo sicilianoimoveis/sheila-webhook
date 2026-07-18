@@ -623,9 +623,9 @@ app.post('/webhook', async (req, res) => {
                 "required": ["motivo"] 
             } 
         },
-        { 
+       { 
             "name": "registrar_nome", 
-            "description": "Use esta função IMEDIATAMENTE e de forma silenciosa assim que o cliente informar o nome dele na conversa, não importa qual seja o assunto.", 
+            "description": "Use para registrar o nome do cliente. ATENÇÃO: É PROIBIDO usar esta função durante o Passo 3 (Seguro Fiança). Se o cliente quiser alugar/visitar, foque em pedir todos os dados da cotação e use apenas gerar_cotacao_seguro.", 
             "parameters": { 
                 "type": "object", 
                 "properties": { "nome": { "type": "string" } }, 
