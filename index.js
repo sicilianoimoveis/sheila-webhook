@@ -258,7 +258,7 @@ async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
             "complemento": v(loc.Complement) || "Sem complemento",
             "bairro": v(loc.Neighborhood) || "Não informado",
             "cidade": v(loc.City) || "Não informado",
-            "estado": v(loc.State) || "RJ"
+            "estado": "RJ" // <--- FIXADO EM RJ PARA EVITAR ERROS DA SIGAFY
         };
 
         const payload = {
@@ -682,7 +682,7 @@ app.post('/webhook', async (req, res) => {
         },
         { 
             "name": "gerar_cotacao_seguro", 
-            "description": "Chame APENAS QUANDO o cliente quiser alugar um imóvel. Peça os dados necessários de forma amigável para adiantar a pré-análise do seguro fiança.", 
+            "description": "Chame APENAS QUANDO o cliente quiser alugar um imóvel E já tiver fornecido TODOS os dados obrigatórios (Nome, CPF, Data de Nascimento, E-mail). Se o cliente enviar os dados em partes ou faltar alguma informação, NÃO CHAME A FUNÇÃO AINDA. Pergunte de forma amigável qual o dado que está faltando.", 
             "parameters": { 
                 "type": "object", 
                 "properties": { 
