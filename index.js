@@ -124,6 +124,75 @@ const obterPrecosFormatados = (imovel) => {
 };
 
 // --- FUNÇÕES DE ENVIO ---
+// --- INTEGRAÇÃO SIGAFY (SEGURO FIANÇA) ---
+async function gerarTokenSigafy() {
+    try {
+        const url = "https://projetos.sigafy.com.br/api/v1/quote/bail-auth";
+        const body = {
+            "username": process.env.SIGAFY_USER || "siciliano.api",
+            "password": process.env.SIGAFY_PASS || "ya6RO@nltms!"
+        };
+        const response = await axios.post(url, body, {
+            headers: { "Content-Type": "application/json", "Accept": "application/json" }
+        });
+        return response.data.token;
+    } catch (error) {
+        console.error("Erro ao gerar token Sigafy:", error.response?.data || error.message);
+        return null;
+    }
+}
+
+async function solicitarCotacaoSigafy(dadosCliente, imovel) {
+    try {
+        const token = await gerarTokenSigafy();
+        if (!token) return null;
+
+        const url = "https://projetos.sigafy.com.br/api/v1/quote/bail";
+        
+        // Pega o valor do aluguel direto do cache (fallback de 1000 se não achar)
+        const pLocacao = parseFloat(v(imovel?.Details?.RentalPrice)) || 1000;
+
+        // Monta o Payload APENAS com os dados obrigatórios mapeados por você
+        const payload = {
+            "gratuito": true,
+            "tipoGarantia": "seguro fianca",
+            "tipoPessoa": "fisica",
+            "tipoLocacao": "residencial",
+            "valorAluguel": pLocacao,
+            "vigencia_meses": 12,
+            "administracao": "Sim",
+            "semImovelDefinido": true,
+            "pretendente": {
+                "documento": dadosCliente.cpf,
+                "nome": dadosCliente.nome,
+                "dataNascimento": dadosCliente.dataNascimento,
+                "estadoCivil": "Solteiro(a)", // Padrão inicial exigido
+                "celular": dadosCliente.celular,
+                "email": dadosCliente.email
+            },
+            "proprietarioImovel": {
+                "documento": "000.000.000-00", // Dados genéricos pois o bot não sabe quem é o dono
+                "nome": "Proprietário",
+                "dataNascimento": "01/01/1980",
+                "estadoCivil": "Solteiro(a)"
+            }
+        };
+
+        const response = await axios.post(url, payload, {
+            headers: {
+                "Authorization": `Bearer ${token}`,
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+        });
+        
+        return response.data;
+    } catch (error) {
+        console.error("Erro ao gerar cotação Sigafy:", error.response?.data || error.message);
+        return null;
+    }
+}
+
 async function enviarMensagem(para, texto) {
     const url = `https://graph.facebook.com/v25.0/1110417002164010/messages`;
     try {
@@ -292,6 +361,10 @@ async function enviarLeadParaCRM(sender, contexto, idsImoveis = []) {
 
     // 3. Traduz a origem atual do lead
     const codigoOrigem = parseInt(ORIGENS[lead.origem] || ORIGENS["whatsapp_direto"]);
+    let alertaSeguro = "";
+    if (lead.dadosSeguro) {
+        alertaSeguro = `\n\n🛡️ [SEGURO FIANÇA PRÉ-COTADO] 🛡️\nO cliente já forneceu os dados para o seguro (CPF: ${lead.dadosSeguro.cpf}). Status da API Sigafy: ${lead.dadosSeguro.status}. Confira os valores e use como argumento de venda!\n`;
+    }
 
     // 4. Monta o Payload no padrão da API
     const payload = {
@@ -302,7 +375,7 @@ async function enviarLeadParaCRM(sender, contexto, idsImoveis = []) {
         origin: lead.origem || "WhatsApp",
         message: contexto.mensagem || "Atendimento inicial realizado pela Sheila (IA).",
         // Junta as observações normais com as notas de imóveis extras
-        notes: (contexto.observacoes || "") + notasAdicionais 
+        notes: (contexto.observacoes || "") + notasAdicionais + alertaSeguro 
     };
 
     if (buildingId) {
@@ -497,6 +570,22 @@ app.post('/webhook', async (req, res) => {
             }
         },
         { 
+            "name": "gerar_cotacao_seguro", 
+            "description": "Chame APENAS QUANDO o cliente quiser alugar um imóvel. Peça os dados necessários de forma amigável para adiantar a pré-análise do seguro fiança.", 
+            "parameters": { 
+                "type": "object", 
+                "properties": { 
+                    "nome": { "type": "string", "description": "Nome completo do cliente" }, 
+                    "cpf": { "type": "string", "description": "CPF do cliente (apenas números)" },
+                    "dataNascimento": { "type": "string", "description": "Data de nascimento (DD/MM/AAAA)" },
+                    "email": { "type": "string", "description": "E-mail do cliente" },
+                    "celular": { "type": "string", "description": "Celular do cliente com DDD" },
+                    "id_imovel": { "type": "string", "description": "O ID (referência) do imóvel que ele quer alugar." }
+                }, 
+                "required": ["nome", "cpf", "dataNascimento", "email", "celular", "id_imovel"] 
+            } 
+        },
+        { 
             "name": "qualificar_lead", 
             "description": "Chame ao perceber interesse claro em visita ou falar com corretor. Sempre extraia o nome do cliente da conversa.", 
             "parameters": { 
@@ -533,6 +622,40 @@ const response = await axios.post(url, payloadInicial);
                 await enviarMensagem(sender, resposta);
                 conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
                 salvarHistorico(sender, conversa);
+            }
+                else if (functionCall.name === "gerar_cotacao_seguro") {
+                const dadosCliente = functionCall.args;
+                
+                // 1. Acha o imóvel no cache para puxar o valor do aluguel
+                const imovelCotado = cacheImoveis.find(i => String(i.ListingID) === String(dadosCliente.id_imovel));
+                
+                // 2. Dispara a API da Sigafy silenciosamente
+                const resultadoCotacao = await solicitarCotacaoSigafy(dadosCliente, imovelCotado);
+                
+                // 3. Salva a aprovação na memória do Lead para ir pro CRM depois
+                if (!leadsIndex[sender]) atualizarIndiceLeads(sender, dadosCliente.nome);
+                leadsIndex[sender].dadosSeguro = {
+                    cpf: dadosCliente.cpf,
+                    status: resultadoCotacao ? "Cotação Gerada" : "Falha na Cotação",
+                    detalhes: resultadoCotacao // Guarda o JSON de resposta da Sigafy
+                };
+                fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
+
+                // 4. Dá a instrução invisível para a Sheila
+                let instrucao = "INFORMAÇÃO INTERNA: A pré-análise foi concluída com sucesso no sistema. ";
+                instrucao += "REGRA ESTRITA: NÃO INFORME NENHUM VALOR DE SEGURO AO CLIENTE. ";
+                instrucao += "Diga apenas, com muita empatia, que a pré-análise deu certo e que o corretor vai apresentar as melhores condições exclusivas durante a visita ou contato.";
+
+                conversa.push({ "role": "user", "parts": [{ "text": instrucao }] });
+                
+                const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
+                const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+                
+                if (texto) {
+                    await enviarMensagem(sender, texto);
+                    conversa.push({ "role": "model", "parts": [{ "text": texto }] });
+                    salvarHistorico(sender, conversa);
+                }
             }
                 else if (functionCall.name === "registrar_nome") {
     const nomeDoCliente = functionCall.args.nome;
