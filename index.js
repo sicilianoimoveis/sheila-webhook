@@ -792,6 +792,74 @@ const response = await axios.post(url, payloadInicial);
     res.sendStatus(200);
 });
 
+// --- NOVA ROTA: WEBHOOK DO IMOVELWEB ---
+app.post('/webhook-imovelweb', async (req, res) => {
+    // 1. REGRA DE OURO: Responder imediatamente para evitar Timeout do portal (< 1.5s)
+    res.status(200).send('Webhook recebido com sucesso');
+
+    try {
+        const data = req.body;
+
+        // 2. Filtra os eventos: Só queremos leads de contato (mensagens ou clique em "ver telefone")
+        if (data.tipoEvento !== 'CONTACTO_MENSAJE' && data.tipoEvento !== 'CONTACTO') {
+            return;
+        }
+
+        // 3. Extrai as informações usando o padrão da documentação
+        const nome = data.nome || data.nombre || 'Cliente';
+        const telefoneBruto = data.telefone || data.phoneNumber || "";
+        const referencia = data.referencia || data.idNavplat || "";
+        const mensagemPortal = data.mensagem || data.mensaje || 'Gostaria de informações sobre este imóvel.';
+
+        if (!telefoneBruto) {
+            console.log("LOG_DEBUG: Lead do Imovelweb recebido sem telefone. Abortando.");
+            return;
+        }
+
+        // 4. Limpeza do Telefone: Remove o "+" e mantém apenas os números
+        const celular = telefoneBruto.replace(/\D/g, '');
+
+        // 5. Inteligência de Link: Tenta achar a URL real do seu site no cache
+        const imovel = cacheImoveis.find(i => String(i.ListingID) === String(referencia));
+        const linkImovel = imovel ? imovel.DetailViewUrl : `https://sicilianoimoveis.com.br/imovel-${referencia}`;
+
+        // 6. Atualiza o cadastro do Lead indicando a origem correta
+        atualizarIndiceLeads(celular, nome, 'imovelweb', false, referencia);
+
+        let conversa = obterHistorico(celular);
+        
+        // 7. Abordagem Ativa: Se for um lead novo, iniciamos a conversa usando o Template
+        if (conversa.length === 0) {
+            
+            // Injeta o contexto oculto para a Sheila saber do que se trata
+            let contextoOculto = `DADOS TÉCNICOS PARA CONSULTA INTERNA DA SHEILA: Novo lead vindo do portal Imovelweb.\nNome do cliente: ${nome}\nMensagem que ele deixou no portal: "${mensagemPortal}"\nID do Imóvel: ${referencia}\n`;
+            
+            if (imovel) {
+                const precos = obterPrecosFormatados(imovel);
+                contextoOculto += `Dados do imóvel de interesse: Venda ${precos.venda}, Locação ${precos.locacao}, Endereço permitido: ${obterEnderecoSeguro(imovel)}. Lembre-se de agir com naturalidade e empatia.`;
+            }
+
+            conversa.push({ role: "user", parts: [{ text: contextoOculto }] });
+            
+            // Salvamos no histórico a frase que o template vai disparar, para a IA ter o contexto da conversa
+            const textoTemplate = `Olá ${nome}, recebemos sua solicitação para o imóvel: ${linkImovel}.`;
+            conversa.push({ role: "model", parts: [{ text: textoTemplate }] });
+            
+            salvarHistorico(celular, conversa);
+
+            // Dispara o template oficial do Facebook com as duas variáveis (Nome e URL)
+            await enviarTemplateLead(celular, nome, linkImovel);
+            
+            console.log(`LOG_DEBUG: Novo Lead Imovelweb processado! Nome: ${nome} | Imóvel: ${referencia}`);
+        } else {
+            console.log(`LOG_DEBUG: Lead Imovelweb (${celular}) já possui histórico. Nova mensagem salva no CRM, mas não interromperemos a IA.`);
+        }
+
+    } catch (error) {
+        console.error("ERRO ao processar webhook do Imovelweb:", error.message);
+    }
+});
+
 app.post('/webhook-lead', async (req, res) => {
     console.log("DADOS REAIS QUE CHEGARAM DO CRM:", JSON.stringify(req.body, null, 2));
     const { name, phone, building_id, origin_desc } = req.body;
