@@ -271,7 +271,10 @@ async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
             "vigencia_meses": 30,
             "administracao": "Sim",
             "semImovelDefinido": true,
-            "imovelPretendido": imovelPretendidoPayload, // <--- DADOS DO IMÓVEL INJETADOS AQUI
+            "imobiliaria": {
+                "atendente": "Siciliano Imoveis" // Pode mudar para "Administrador" se a Sigafy exigir o nome exato do usuário do sistema
+            },
+            "imovelPretendido": imovelPretendidoPayload,
             "pretendente": {
                 "documento": dadosCliente.cpf,
                 "nome": dadosCliente.nome,
@@ -761,6 +764,14 @@ const response = await axios.post(url, payloadInicial);
                 };
                 fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
 
+                // --- INÍCIO DA CORREÇÃO: ENVIAR PARA O CRM ---
+                const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
+                await enviarLeadParaCRM(sender, {
+                    interesse: "aluguel",
+                    mensagem: "Atendimento de locação iniciado pela Sheila",
+                    observacoes: `Resumo: Lead quer alugar. Funil de seguro acionado.\nLink da conversa: ${linkEspelho}`
+                }, [dadosCliente.id_imovel]);
+                // --- FIM DA CORREÇÃO ---
                 // 4. Dá a instrução invisível para a Sheila
                 let instrucao = "INFORMAÇÃO INTERNA: A pré-análise foi concluída com sucesso no sistema. ";
                 instrucao += "REGRA ESTRITA: NÃO INFORME NENHUM VALOR DE SEGURO AO CLIENTE. ";
