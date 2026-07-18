@@ -124,23 +124,6 @@ const obterPrecosFormatados = (imovel) => {
 };
 
 // --- FUNÇÕES DE ENVIO ---
-// --- INTEGRAÇÃO SIGAFY (SEGURO FIANÇA) ---
-async function gerarTokenSigafy() {
-    try {
-        const url = "https://projetos.sigafy.com.br/api/v1/quote/bail-auth";
-        const body = {
-            "username": process.env.SIGAFY_USER || "siciliano.api",
-            "password": process.env.SIGAFY_PASS || "ya6RO@nltms!"
-        };
-        const response = await axios.post(url, body, {
-            headers: { "Content-Type": "application/json", "Accept": "application/json" }
-        });
-        return response.data.token;
-    } catch (error) {
-        console.error("Erro ao gerar token Sigafy:", error.response?.data || error.message);
-        return null;
-    }
-}
 
 // ==========================================
 // --- INTEGRAÇÃO SIGAFY E CRM (SEGURO FIANÇA) ---
@@ -219,7 +202,7 @@ async function gerarTokenSigafy() {
     }
 }
 
-async function solicitarCotacaoSigafy(dadosCliente, imovel) {
+async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
     try {
         const token = await gerarTokenSigafy();
         if (!token) return null;
@@ -241,6 +224,43 @@ async function solicitarCotacaoSigafy(dadosCliente, imovel) {
              };
         }
 
+        // --- 1. CORREÇÃO DA DATA DE NASCIMENTO ---
+        let dataNascFormatada = dadosCliente.dataNascimento;
+        if (dataNascFormatada) {
+            const partes = dataNascFormatada.split(/[-/]/); // Trata barra ou traço
+            if (partes.length === 3) {
+                let dia = partes[0].padStart(2, '0');
+                let mes = partes[1].padStart(2, '0');
+                let ano = partes[2];
+                // Se o cliente mandou "84", o código transforma em "1984"
+                if (ano.length === 2) {
+                    ano = parseInt(ano) < 30 ? `20${ano}` : `19${ano}`;
+                }
+                dataNascFormatada = `${dia}/${mes}/${ano}`;
+            }
+        }
+
+        // --- 2. CORREÇÃO DO CELULAR ---
+        // Se a Sheila disser "nao informado", nós usamos o número do WhatsApp que disparou a mensagem!
+        let celularFormatado = dadosCliente.celular;
+        if (!celularFormatado || celularFormatado.toLowerCase().includes("nao")) {
+            celularFormatado = telefoneCliente;
+        }
+
+        // --- 3. CORREÇÃO DO ENDEREÇO DO IMÓVEL ---
+        // Puxa do seu XML para satisfazer a API da Sigafy
+        const loc = imovel?.Location || {};
+        const imovelPretendidoPayload = {
+            "cep": v(loc.ZipCode) || "00000-000",
+            "codigo_imovel": String(imovel?.ListingID || "00000"),
+            "endereco": v(loc.Address) || "Não informado",
+            "numero": v(loc.StreetNumber) || "S/N",
+            "complemento": v(loc.Complement) || "Sem complemento",
+            "bairro": v(loc.Neighborhood) || "Não informado",
+            "cidade": v(loc.City) || "Não informado",
+            "estado": v(loc.State) || "RJ"
+        };
+
         const payload = {
             "gratuito": true,
             "tipoGarantia": "seguro fianca",
@@ -251,13 +271,14 @@ async function solicitarCotacaoSigafy(dadosCliente, imovel) {
             "vigencia_meses": 30,
             "administracao": "Sim",
             "semImovelDefinido": true,
+            "imovelPretendido": imovelPretendidoPayload, // <--- DADOS DO IMÓVEL INJETADOS AQUI
             "pretendente": {
                 "documento": dadosCliente.cpf,
                 "nome": dadosCliente.nome,
-                "dataNascimento": dadosCliente.dataNascimento,
+                "dataNascimento": dataNascFormatada, 
                 "estadoCivil": "Solteiro(a)", 
-                "celular": dadosCliente.celular,
-                "email": dadosCliente.email
+                "celular": celularFormatado,
+                "email": dadosCliente.email || "nao_informado@email.com"
             },
             "proprietarioImovel": {
                 "tipoPessoa": "fisica",
@@ -724,7 +745,7 @@ const response = await axios.post(url, payloadInicial);
                 console.log(`LOG_DEBUG: Dados enviados pela Sheila:`, JSON.stringify(dadosCliente, null, 2));
                 
                 // Dispara a API da Sigafy silenciosamente
-                const resultadoCotacao = await solicitarCotacaoSigafy(dadosCliente, imovelCotado);
+                const resultadoCotacao = await solicitarCotacaoSigafy(dadosCliente, imovelCotado, sender);
                 
                 // --- LOG DA RESPOSTA DA API ---
                 console.log(`LOG_DEBUG: Resposta recebida da Sigafy:`, JSON.stringify(resultadoCotacao, null, 2));
