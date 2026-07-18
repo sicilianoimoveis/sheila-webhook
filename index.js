@@ -142,38 +142,128 @@ async function gerarTokenSigafy() {
     }
 }
 
+// ==========================================
+// --- INTEGRAÇÃO SIGAFY E CRM (SEGURO FIANÇA) ---
+// ==========================================
+
+async function buscarProprietarioNoCRM(buildingId) {
+    try {
+        const config = { 
+            headers: { 
+                "Authorization": `Bearer ${process.env.CRM_API_TOKEN}`, 
+                "Accept": "application/json" 
+            } 
+        };
+        
+        // 1. PRIMEIRA CHAMADA: Busca o imóvel para pegar o ID do dono
+        const resImovel = await axios.get("https://api.apresenta.me/buildings", {
+            ...config,
+            params: {
+                "include[owners]": "*",
+                "filter[id]": buildingId
+            }
+        });
+        
+        const ownerId = resImovel.data?.data?.[0]?.owners?.[0]?.id; 
+        
+        if (!ownerId) {
+            console.log(`LOG_DEBUG: Imóvel ${buildingId} não possui proprietário no CRM.`);
+            return null;
+        }
+
+        // 2. SEGUNDA CHAMADA: Busca os dados do proprietário
+        const resOwner = await axios.get("https://api.apresenta.me/persons", {
+            ...config,
+            params: {
+                "include[contacts]": "*",
+                "filter[id]": ownerId
+            }
+        });
+        
+        const dono = resOwner.data?.data?.[0];
+        if (!dono) return null;
+
+        let dataFormatada = "01/01/1980";
+        if (dono.birth_date) {
+            const partes = dono.birth_date.split('-');
+            if (partes.length === 3) dataFormatada = `${partes[2]}/${partes[1]}/${partes[0]}`;
+        }
+
+        return {
+            tipoPessoa: dono.juridical ? "juridica" : "fisica",
+            documento: dono.taxid || "000.000.000-00", 
+            nome: dono.name || "Proprietário",
+            dataNascimento: dataFormatada,
+            estadoCivil: dono.marital || "Solteiro(a)"
+        };
+    } catch (error) {
+        console.error("Erro ao buscar proprietário no CRM:", error.message);
+        return null;
+    }
+}
+
+async function gerarTokenSigafy() {
+    try {
+        const url = "https://projetos.sigafy.com.br/api/v1/quote/bail-auth";
+        const body = {
+            "username": process.env.SIGAFY_USER || "siciliano.api",
+            "password": process.env.SIGAFY_PASS || "ya6RO@nltms!"
+        };
+        const response = await axios.post(url, body, {
+            headers: { "Content-Type": "application/json", "Accept": "application/json" }
+        });
+        return response.data.token;
+    } catch (error) {
+        console.error("Erro ao gerar token Sigafy:", error.response?.data || error.message);
+        return null;
+    }
+}
+
 async function solicitarCotacaoSigafy(dadosCliente, imovel) {
     try {
         const token = await gerarTokenSigafy();
         if (!token) return null;
 
         const url = "https://projetos.sigafy.com.br/api/v1/quote/bail";
-        
-        // Pega o valor do aluguel direto do cache (fallback de 1000 se não achar)
         const pLocacao = parseFloat(v(imovel?.Details?.RentalPrice)) || 1000;
 
-        // Monta o Payload APENAS com os dados obrigatórios mapeados por você
+        const tipoImovelXML = v(imovel?.Details?.PropertyType).toLowerCase();
+        let tipoImovelSigafy = "apartamento"; 
+        if (tipoImovelXML.includes("casa")) tipoImovelSigafy = "casa";
+        else if (tipoImovelXML.includes("comercial") || tipoImovelXML.includes("loja")) tipoImovelSigafy = "sala comercial";
+
+        let dadosProprietario = await buscarProprietarioNoCRM(imovel.ListingID);
+        if (!dadosProprietario) {
+             dadosProprietario = {
+                documento: "000.000.000-00",
+                nome: "Proprietário Não Informado",
+                dataNascimento: "01/01/1980"
+             };
+        }
+
         const payload = {
             "gratuito": true,
             "tipoGarantia": "seguro fianca",
             "tipoPessoa": "fisica",
             "tipoLocacao": "residencial",
+            "tipoimovel": tipoImovelSigafy, 
             "valorAluguel": pLocacao,
-            "vigencia_meses": 12,
+            "vigencia_meses": 30,
             "administracao": "Sim",
             "semImovelDefinido": true,
             "pretendente": {
                 "documento": dadosCliente.cpf,
                 "nome": dadosCliente.nome,
                 "dataNascimento": dadosCliente.dataNascimento,
-                "estadoCivil": "Solteiro(a)", // Padrão inicial exigido
+                "estadoCivil": "Solteiro(a)", 
                 "celular": dadosCliente.celular,
                 "email": dadosCliente.email
             },
             "proprietarioImovel": {
-                "documento": "000.000.000-00", // Dados genéricos pois o bot não sabe quem é o dono
-                "nome": "Proprietário",
-                "dataNascimento": "01/01/1980",
+                "tipoPessoa": "fisica",
+                "documento": dadosProprietario.documento,
+                "nome": dadosProprietario.nome,
+                "dataNascimento": dadosProprietario.dataNascimento,
                 "estadoCivil": "Solteiro(a)"
             }
         };
