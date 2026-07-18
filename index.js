@@ -263,35 +263,83 @@ async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
 
         const payload = {
             "gratuito": true,
+            "observacao": "Cotação via Sheila IA",
             "tipoGarantia": "seguro fianca",
+            "valorTitulo": pLocacao,
             "tipoPessoa": "fisica",
             "tipoLocacao": "residencial",
-            "tipoimovel": tipoImovelSigafy, 
+            "tipoimovel": tipoImovelSigafy || "casa", 
             "valorAluguel": pLocacao,
-            "vigencia_meses": 30,
+            "valorCondominio": valorCondominio || 0,
+            "valorAgua": 0,
+            "valorLuz": 0,
+            "valorGas": 0,
+            "valorIptu": valorIptu || 0,
+            "codigo_imovel": dadosCliente.id_imovel || "Não informado",
+            "parceiro": "",
+            "vigencia_meses": 30, // Deixei 30 que é o padrão de locação
             "administracao": "Sim",
-            "semImovelDefinido": true,
-            "imobiliaria": {
-                "atendente": "Siciliano Imoveis" // Pode mudar para "Administrador" se a Sigafy exigir o nome exato do usuário do sistema
+            "atividade": "Atividade",
+            "experiencia": "Experiencia no ramo",
+            "contato": dadosCliente.nome,
+            "solidario": {
+                "solidarios_conjulge": "",
+                "solidarios_cpf": "",
+                "solidarios_nome": "",
+                "solidarios_rg": "",
+                "solidarios_date_expedition": "",
+                "solidarios_orgao_emissor": "",
+                "solidarios_nascimento": "",
+                "solidarios_fone": "",
+                "solidarios_email": "",
+                "solidarios_civil": "",
+                "solidarios_degree": "",
+                "solidarios_sexo": ""
             },
-            "imovelPretendido": imovelPretendidoPayload,
+            "partners": {
+                "partners_cpf": "",
+                "partners_nome": "",
+                "partners_fone": "",
+                "partners_email": "",
+                "partners_percent": ""
+            },
+            "cobertura": {
+                "danos": true,
+                "pinturaInterna": true,
+                "multa": true,
+                "pinturaExterna": false
+            },
+            "semImovelDefinido": dadosCliente.id_imovel ? false : true,
+            "imovelPretendido": imovelPretendidoPayload, // O objeto do imovel que você já monta
+            "imobiliaria": {
+                "id": 1107,
+                "atendente": "Siciliano Imoveis"
+            },
             "pretendente": {
                 "documento": dadosCliente.cpf,
                 "nome": dadosCliente.nome,
-                "dataNascimento": dataNascFormatada, 
-                "estadoCivil": "Solteiro(a)", 
+                "sexo": "MASCULINO", // Ideal manter algo genérico ou puxar do cadastro
+                "dataNascimento": dataNascFormatada,
+                "estadoCivil": "Solteiro(a)",
                 "celular": celularFormatado,
-                "email": dadosCliente.email || "nao_informado@email.com"
+                "fone": celularFormatado,
+                "email": dadosCliente.email || "nao_informado@email.com",
+                "rg": {
+                    "numero": "",
+                    "expedicao": "",
+                    "orgaoEmissor": ""
+                },
+                "contato": dadosCliente.nome,
+                "cnae": ""
             },
             "proprietarioImovel": {
                 "tipoPessoa": "fisica",
-                "documento": dadosProprietario.documento,
-                "nome": dadosProprietario.nome,
-                "dataNascimento": dadosProprietario.dataNascimento,
+                "documento": dadosProprietario.documento || "000.000.000-00",
+                "nome": dadosProprietario.nome || "Não informado",
+                "dataNascimento": dadosProprietario.dataNascimento || "01/01/1980",
                 "estadoCivil": "Solteiro(a)"
             }
         };
-
         const response = await axios.post(url, payload, {
             headers: {
                 "Authorization": `Bearer ${token}`,
@@ -766,13 +814,23 @@ const response = await axios.post(url, payloadInicial);
 
                 // --- INÍCIO DA CORREÇÃO: ENVIAR PARA O CRM ---
                 const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
+                
                 await enviarLeadParaCRM(sender, {
+                    // Forçando o nome e email do cliente para não ir como "Cliente" genérico
+                    nome: dadosCliente.nome,
+                    name: dadosCliente.nome,
+                    email: dadosCliente.email,
+                    
+                    // Forçando a finalidade Aluguel
+                    purpose: "rent", 
                     interesse: "aluguel",
+                    
                     mensagem: "Atendimento de locação iniciado pela Sheila",
                     observacoes: `Resumo: Lead quer alugar. Funil de seguro acionado.\nLink da conversa: ${linkEspelho}`
                 }, [dadosCliente.id_imovel]);
-                // --- FIM DA CORREÇÃO ---
-                // 4. Dá a instrução invisível para a Sheila
+                // --------------------------------------------------
+
+                // Instrução que volta para a Sheila
                 let instrucao = "INFORMAÇÃO INTERNA: A pré-análise foi concluída com sucesso no sistema. ";
                 instrucao += "REGRA ESTRITA: NÃO INFORME NENHUM VALOR DE SEGURO AO CLIENTE. ";
                 instrucao += "Diga apenas, com muita empatia, que a pré-análise deu certo e que o corretor vai apresentar as melhores condições exclusivas durante a visita ou contato.";
