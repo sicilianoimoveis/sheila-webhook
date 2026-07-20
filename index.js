@@ -1465,52 +1465,11 @@ async function forcarEnvioCRM(sender, obs) {
 }
 
 async function configurarWebhookImovelweb() {
-    // 1. Trava de segurança para garantir que as variáveis foram carregadas
-    if (!process.env.IMOVELWEB_USER || !process.env.IMOVELWEB_PASS) {
-        console.log("❌ ERRO: Variáveis IMOVELWEB_USER ou IMOVELWEB_PASS não foram carregadas do .env/Railway.");
-        return;
-    }
-
-    // 2. Monta o Token Basic Auth manualmente para forçar o envio no cabeçalho
-    const tokenBase64 = Buffer.from(`${process.env.IMOVELWEB_USER}:${process.env.IMOVELWEB_PASS}`).toString('base64');
-
-    try {
-        const response = await axios.put('https://api-br-open.navent.com/v1/configuracion/callbacks', {
-            // Coloquei a sua URL real do Railway que vi no seu código do CRM
-            url: "https://webhook-siciliano-production.up.railway.app/webhook-imovelweb", 
-            authorizationHeaderKey: "Authorization",
-            authorizationHeaderValue: process.env.IMOVELWEB_WEBHOOK_TOKEN,
-            lenguajeCallbackBody: "PT"
-        }, {
-            headers: {
-                'Authorization': `Basic ${tokenBase64}`,
-                'Content-Type': 'application/json'
-            }
-        });
-        console.log("✅ Webhook configurado no Imóvelweb!");
-    } catch (error) {
-        console.error("❌ Erro ao configurar webhook:", error.response?.data || error.message);
-    }
+    
 }
 
 async function assinarEventosImovelweb() {
-    if (!process.env.IMOVELWEB_USER || !process.env.IMOVELWEB_PASS) return;
-    
-    const tokenBase64 = Buffer.from(`${process.env.IMOVELWEB_USER}:${process.env.IMOVELWEB_PASS}`).toString('base64');
-    const eventos = ['CONTACTO_MENSAJE', 'CONTACTO'];
-    
-    for (let evento of eventos) {
-        try {
-            await axios.put(`https://api-br-open.navent.com/v1/configuracion/callbacks/${evento}`, {}, {
-                headers: {
-                    'Authorization': `Basic ${tokenBase64}`
-                }
-            });
-            console.log(`✅ Inscrito com sucesso no evento: ${evento}`);
-        } catch (error) {
-            console.error(`❌ Erro ao se inscrever no evento ${evento}:`, error.response?.data || error.message);
-        }
-    }
+   
 }
 
 
