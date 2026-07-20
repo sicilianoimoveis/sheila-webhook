@@ -1211,6 +1211,67 @@ const response = await axios.post(url, payloadInicial);
     }
     res.sendStatus(200);
 });
+// --- NOVA ROTA: WEBHOOK LEADS4SALES ---
+app.post('/webhook-leads4sales', async (req, res) => {
+    try {
+        const data = req.body;
+        console.log("LOG_DEBUG: Lead recebido do Leads4Sales:", JSON.stringify(data, null, 2));
+
+        // 1. VALIDAÇÃO OBRIGATÓRIA: O manual exige clientListingId
+        if (!data.clientListingId) {
+            console.log("LOG_DEBUG: Lead recebido sem clientListingId. Retornando erro 400 conforme manual.");
+            return res.status(400).send("clientListingId é obrigatório");
+        }
+
+        // 2. Resposta rápida para o protocolo (Status 2xx indica sucesso)[cite: 8]
+        res.status(200).send('Lead recebido');
+
+        // 3. Extração dos dados baseada no contrato JSON[cite: 8]
+        const nome = data.name || 'Cliente';
+        const celular = data.phoneNumber ? data.phoneNumber.replace(/\D/g, '') : "";
+        const referencia = String(data.clientListingId);
+        const mensagemPortal = data.message || 'Gostaria de informações sobre este imóvel.';
+
+        if (!celular) {
+            console.log("LOG_DEBUG: Lead do Leads4Sales sem telefone. Abortando.");
+            return;
+        }
+
+        // 4. Inteligência de Link
+        const imovel = cacheImoveis.find(i => String(i.ListingID) === referencia);
+        const linkImovel = imovel ? imovel.DetailViewUrl : `https://sicilianoimoveis.com.br/imovel/${referencia}`;
+
+        // 5. Atualiza o cadastro (usando a origem 'lead4sales' que temos no seu ORIGENS)
+        atualizarIndiceLeads(celular, nome, 'lead4sales', false, referencia);
+
+        let conversa = obterHistorico(celular);
+        
+        // 6. Abordagem Ativa (se for lead novo)
+        if (conversa.length === 0) {
+            let contextoOculto = `DADOS TÉCNICOS PARA CONSULTA INTERNA DA SHEILA: Novo lead vindo do Leads4Sales.\nNome do cliente: ${nome}\nMensagem: "${mensagemPortal}"\nID do Imóvel: ${referencia}\n`;
+            
+            if (imovel) {
+                const precos = obterPrecosFormatados(imovel);
+                contextoOculto += `Dados do imóvel: Venda ${precos.venda}, Locação ${precos.locacao}, Endereço permitido: ${obterEnderecoSeguro(imovel)}.`;
+            }
+
+            conversa.push({ role: "user", parts: [{ text: contextoOculto }] });
+            const textoTemplate = `Olá ${nome}, recebemos sua solicitação para o imóvel: ${linkImovel}.`;
+            conversa.push({ role: "model", parts: [{ text: textoTemplate }] });
+            
+            salvarHistorico(celular, conversa);
+
+            // Dispara o template
+            await enviarTemplateLead(celular, nome, linkImovel);
+            
+            console.log(`LOG_DEBUG: Novo Lead Leads4Sales processado! Nome: ${nome} | Imóvel: ${referencia}`);
+        }
+    } catch (error) {
+        console.error("ERRO ao processar webhook do Leads4Sales:", error.message);
+        // Em caso de falha severa, respondemos com erro para acionar a retentativa automática deles[cite: 8]
+        if (!res.headersSent) res.status(500).send("Erro interno");
+    }
+});
 
 // --- NOVA ROTA: WEBHOOK DO IMOVELWEB (CORRIGIDA) ---
 app.post('/webhook-imovelweb', async (req, res) => {
