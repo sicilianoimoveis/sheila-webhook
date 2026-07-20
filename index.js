@@ -628,6 +628,22 @@ app.get('/chat/:sender', (req, res) => {
 
     res.send(html);
 });
+// Adicione isso nas suas rotas do Express
+app.post('/disparar-reengajamento', async (req, res) => {
+    const tokenFornecido = req.query.token;
+    
+    // Validação básica de segurança
+    if (tokenFornecido !== "SEU_TOKEN_AQUI") {
+        return res.status(403).send("Não autorizado");
+    }
+
+    // Chama a função pesada sem colocar 'await' aqui.
+    // Assim, a API responde rápido para a interface (evitando erro de timeout), 
+    // enquanto o loop de 4 a 8 minutos continua rodando silenciosamente no servidor.
+    dispararReengajamentoManual(); 
+
+    res.status(200).send("Disparo em lote iniciado no servidor.");
+});
 
 
 app.get('/leads', (req, res) => {
@@ -1208,6 +1224,7 @@ app.post('/webhook-imovelweb', async (req, res) => {
         console.error("ERRO ao processar webhook do Imovelweb:", error.message);
     }
 });
+
 
 app.post('/webhook-lead', async (req, res) => {
     console.log("DADOS REAIS QUE CHEGARAM DO CRM:", JSON.stringify(req.body, null, 2));
