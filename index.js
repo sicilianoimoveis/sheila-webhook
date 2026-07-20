@@ -1499,12 +1499,14 @@ async function assinarEventosImovelweb() {
         }
     }
 }
+await configurarWebhookImovelweb();
+
+await assinarEventosImovelweb();
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`LOG_DEBUG: Servidor online na porta ${PORT}`);
-    await configurarWebhookImovelweb();
-await assinarEventosImovelweb();
+    
     const carregarDados = async () => {
         try {
             const dir = path.dirname(FILE_PATH);
