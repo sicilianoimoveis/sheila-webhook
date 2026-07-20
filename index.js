@@ -1239,7 +1239,6 @@ app.post('/webhook-imovelweb', async (req, res) => {
         if (data.tipoEvento !== 'CONTACTO_MENSAJE' && data.tipoEvento !== 'CONTACTO') {
             return;
         }
-        }
 
         // 3. Extrai as informações usando o padrão da documentação
         const nome = data.nome || data.nombre || 'Cliente';
