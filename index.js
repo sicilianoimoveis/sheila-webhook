@@ -1218,19 +1218,27 @@ app.post('/webhook-imovelweb', async (req, res) => {
     res.status(200).send('Webhook recebido com sucesso');
 
     try {
-        // Validação de Segurança (Opcional, mas altamente recomendada)
+        // Log para investigarmos os cabeçalhos que o Imóvelweb realmente envia
+        console.log("LOG_DEBUG: Headers recebidos do Imóvelweb:", JSON.stringify(req.headers));
+
+        // ⚠️ DESATIVANDO A TRAVA DE SEGURANÇA TEMPORARIAMENTE
+        /*
         const tokenRecebido = req.headers['authorization'];
         if (tokenRecebido !== process.env.IMOVELWEB_WEBHOOK_TOKEN) {
             console.log("LOG_DEBUG: Tentativa de acesso não autorizada ao webhook.");
             return; 
         }
+        */
 
         const data = req.body;
+        
+        // Log extra para vermos o formato exato do lead que chegou
+        console.log("LOG_DEBUG: Body recebido do Imóvelweb:", JSON.stringify(data, null, 2));
 
         // 2. Filtra os eventos: Só queremos leads de contato
-        // O manual lista os eventos CONTACTO_MENSAJE e CONTACTO
         if (data.tipoEvento !== 'CONTACTO_MENSAJE' && data.tipoEvento !== 'CONTACTO') {
             return;
+        }
         }
 
         // 3. Extrai as informações usando o padrão da documentação
