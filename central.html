@@ -29,15 +29,35 @@
         header { padding: 20px; text-align: center; background: var(--bg-sidebar); border-bottom: 1px solid #cbd5e1; }
         header img { width: 120px; }
         
-        .search-container { padding: 15px; }
+        .search-container { padding: 15px; border-bottom: 1px solid #cbd5e1; }
         .filter-group { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 8px; }
         .search-box, .filter-select { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; box-sizing: border-box; }
         
+        /* --- NOVO: ESTILO DO BOTÃO DE DISPARO EM LOTE --- */
+        .btn-reengajamento {
+            width: 100%;
+            padding: 10px;
+            margin-top: 12px;
+            background-color: #3b82f6; 
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 13px;
+            transition: 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .btn-reengajamento:hover { background-color: #2563eb; }
+        .btn-reengajamento:disabled { background-color: #94a3b8; cursor: not-allowed; }
+
         #leads-container { flex: 1; overflow-y: auto; padding: 15px; }
         
         .card { background: var(--bg-card); padding: 16px; margin-bottom: 12px; border-radius: 8px; border-left: 5px solid #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.1); cursor: pointer; transition: 0.2s; }
         .card:hover { border-left-color: var(--primary); }
-        /* Estilos para o alerta de urgência/reclamação */
         .card.urgente { border-left-color: #ef4444; background-color: #fef2f2; }
         .card.urgente h3 { color: #dc2626; }
         .tag.tag-urgente { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; }
@@ -84,6 +104,12 @@
                     <option value="enviado">CRM</option>
                 </select>
             </div>
+            
+            <!-- --- NOVO: BOTÃO DE DISPARO --- -->
+            <button id="btnReengajamento" class="btn-reengajamento" onclick="iniciarReengajamentoLote()">
+                🚀 Disparar Reengajamento (7 dias)
+            </button>
+
         </div>
         <div id="leads-container"></div>
     </div>
@@ -120,10 +146,8 @@
                         const int = lead.categoria === 'captacao' ? 'Captação' : (lead.purpose === 'rent' ? 'Aluguel' : 'Compra');
                         
                         const card = document.createElement('div');
-                        // Se o lead tiver o status urgente, adiciona a classe CSS "urgente" no card
                         card.className = lead.statusUrgente ? 'card urgente' : 'card';
                         
-                        // Cria a tag visual de alerta se for urgente
                         const tagUrgente = lead.statusUrgente ? `<span class="tag tag-urgente">🚨 URGENTE</span>` : '';
 
                         card.innerHTML = `
@@ -160,9 +184,32 @@
             fetch(`/enviar-crm/${sender}?token=${token}`, { method: 'POST' })
             .then(res => res.text()).then(msg => { alert(msg); location.reload(); });
         }
+
+        // --- NOVO: FUNÇÃO QUE COMUNICA COM SEU BACKEND PARA O DISPARO ---
+        function iniciarReengajamentoLote() {
+            const btn = document.getElementById('btnReengajamento');
+            
+            const confirma = confirm("Atenção: Isso iniciará a varredura e o disparo do modelo 'rengajamento7' para os leads aptos. A rotina rodará em segundo plano (1 mensagem a cada 4~8 minutos). Deseja continuar?");
+            
+            if (!confirma) return;
+
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Disparo em Andamento...';
+
+            fetch(`/disparar-reengajamento?token=${token}`, { method: 'POST' })
+                .then(res => res.text())
+                .then(msg => {
+                    alert("✅ Comando enviado! Acompanhe o progresso pelo terminal do seu servidor.");
+                    // Mantemos o botão desativado na tela atual para evitar duplo clique
+                })
+                .catch(erro => {
+                    alert("❌ Erro de comunicação com o servidor: " + erro);
+                    btn.disabled = false;
+                    btn.innerHTML = '🚀 Disparar Reengajamento (7 dias)';
+                });
+        }
     </script>
     <script>
-    // 1. Pede permissão para enviar notificações assim que você abre a central
     document.addEventListener('DOMContentLoaded', () => {
         if (Notification.permission !== "granted") {
             Notification.requestPermission();
@@ -171,23 +218,18 @@
 
     let leadsConhecidos = 0;
 
-    // 2. Função que fica checando novidades a cada 30 segundos
     setInterval(() => {
         fetch(`/leads?token=${token}`)
             .then(res => res.json())
             .then(data => {
-                // Filtra para ver se tem alguma reclamação recente/urgente
                 const leadsUrgentes = data.filter(l => l.statusUrgente);
                 
-                // Se o número de leads ou urgências mudar, atualiza a tela
                 if (data.length !== leadsConhecidos) {
                     leadsConhecidos = data.length;
-                    renderLeads(); // Atualiza a lista visualmente
+                    renderLeads(); 
                 }
 
-                // Dispara a notificação push no celular/PC se houver reclamação
                 leadsUrgentes.forEach(lead => {
-                    // Usamos localStorage para não notificar a mesma reclamação duas vezes
                     if (!localStorage.getItem(`notificado_${lead.sender}`)) {
                         if (Notification.permission === "granted") {
                             new Notification("🚨 Reclamação / Cobrança", {
@@ -199,7 +241,7 @@
                     }
                 });
             });
-    }, 30000); // Roda a cada 30 segundos
+    }, 30000); 
 </script>
 </body>
 </html>
