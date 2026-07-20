@@ -388,7 +388,6 @@ async function enviarTemplateLead(para, nome, linkImovel) {
     };
     await axios.post(url, payload, { headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}` } });
 }
-
 async function enviarTemplateReengajamento(para, nome) {
     const url = `https://graph.facebook.com/v25.0/1110417002164010/messages`;
     const payload = {
@@ -402,6 +401,24 @@ async function enviarTemplateReengajamento(para, nome) {
         }
     };
     await axios.post(url, payload, { headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}` } });
+}
+async function enviarTemplateMeta(para, nomeTemplate, variavelNome) {
+    const url = `https://graph.facebook.com/v25.0/1110417002164010/messages`;
+    const payload = {
+        messaging_product: "whatsapp",
+        to: para,
+        type: "template",
+        template: {
+            name: nomeTemplate,
+            language: { code: "pt_BR" },
+            components: [{ type: "body", parameters: [{ type: "text", text: variavelNome }] }]
+        }
+    };
+    try {
+        await axios.post(url, payload, { headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}` } });
+    } catch (error) { 
+        console.error(`Erro ao enviar template ${nomeTemplate}:`, error.response?.data || error.message); 
+    }
 }
 
 // NOVO: Função para obter a URL de download do áudio no WhatsApp
@@ -505,33 +522,29 @@ function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId 
     };
     fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
 }
-// --- NOVO: FUNÇÃO CENTRALIZADA DE ENVIO PARA O CRM VIA API OFICIAL ---
+// --- NOVO: FUNÇÃO CENTRALIZADA DE ENVIO PARA O CRM COM UPLOAD DE ARQUIVOS ---
 async function enviarLeadParaCRM(sender, contexto, idsImoveis = []) {
     const lead = leadsIndex[sender];
     if (!lead) return;
 
     // 1. Converte a intenção para os padrões do CRM (sale ou rent)
     let purposeStr = "sale"; 
-    // ACEITA SE FORÇARMOS "rent" NO CONTEXTO OU SE A PALAVRA FOR LOCAÇÃO/ALUGUEL
     if (contexto.purpose) {
         purposeStr = contexto.purpose; 
     } else if (contexto.interesse && (contexto.interesse.toLowerCase().includes('loca') || contexto.interesse.toLowerCase().includes('aluguel'))) {
         purposeStr = "rent";
     }
 
-    // 2. Lógica Inteligente de Imóveis: Pega os IDs que a IA extraiu da conversa
+    // 2. Lógica Inteligente de Imóveis
     let buildingId = null;
     let notasAdicionais = "";
 
     if (idsImoveis && idsImoveis.length > 0) {
-        buildingId = idsImoveis[0]; // O CRM só aceita 1 ID no campo principal, enviamos o primeiro
-        
+        buildingId = idsImoveis[0]; 
         if (idsImoveis.length > 1) {
-            // Se o cliente quer ver mais de um, colocamos um alerta gigante nas notas do corretor!
             notasAdicionais = `\n\n⚠️ ATENÇÃO CORRETOR: O cliente também tem interesse em visitar os imóveis IDs: ${idsImoveis.join(', ')}`;
         }
     } else if (lead.imoveisInteresse && lead.imoveisInteresse.length > 0) {
-        // Fallback: Se a IA não mandou ID, tenta pegar o último da memória antiga
         buildingId = lead.imoveisInteresse[lead.imoveisInteresse.length - 1]; 
     }
 
@@ -542,16 +555,15 @@ async function enviarLeadParaCRM(sender, contexto, idsImoveis = []) {
         alertaSeguro = `\n\n🛡️ [SEGURO FIANÇA PRÉ-COTADO] 🛡️\nO cliente já forneceu os dados para o seguro (CPF: ${lead.dadosSeguro.cpf}). Status da API Sigafy: ${lead.dadosSeguro.status}. Confira os valores e use como argumento de venda!\n`;
     }
 
-    // 4. Monta o Payload no padrão da API
+    // 4. Monta o Payload principal
     const payload = {
-        name: contexto.nome || lead.nome || "Cliente", // <--- CORREÇÃO: Dá prioridade ao nome enviado pela Sheila!
-        email: contexto.email || lead.email || null,   // <--- CORREÇÃO: Envia o email pro CRM se houver!
+        name: contexto.nome || lead.nome || "Cliente",
+        email: contexto.email || lead.email || null,
         phone: sender.replace(/\D/g, ''), 
-        purpose: purposeStr, // <--- CORREÇÃO: Agora respeita o "rent"
+        purpose: purposeStr,
         origin_id: codigoOrigem,
         origin: lead.origem || "WhatsApp",
         message: contexto.mensagem || "Atendimento inicial realizado pela Sheila (IA).",
-        // Junta as observações normais com as notas de imóveis extras
         notes: (contexto.observacoes || "") + notasAdicionais + alertaSeguro 
     };
 
@@ -569,10 +581,49 @@ async function enviarLeadParaCRM(sender, contexto, idsImoveis = []) {
             }
         };
 
+        // --- ETAPA A: CRIA O LEAD NO CRM ---
         const response = await axios.post(url, payload, config);
-        console.log(`LOG_DEBUG: Lead enviado via API com sucesso! Origem: ${codigoOrigem}, Building_ID: ${buildingId || 'Nenhum'}`);
+        console.log(`LOG_DEBUG: Lead criado no CRM com sucesso! Origem: ${codigoOrigem}, Building_ID: ${buildingId || 'Nenhum'}`);
         
-        // Atualiza a memória com o nome correto
+        // Captura o ID gerado pelo CRM (A maioria das APIs retorna em response.data.id ou response.data.data.id)
+        const leadIdGerado = response.data?.id || response.data?.data?.id;
+
+        // --- ETAPA B: UPLOAD DOS PDFS DA SIGAFY NO LEAD CRIADO ---
+        if (leadIdGerado && lead.dadosSeguro && lead.dadosSeguro.detalhes) {
+            const detalhes = lead.dadosSeguro.detalhes;
+            let filesArray = [];
+
+            // Puxa as strings base64 retornadas pela Sigafy (ajuste o nome exato da variável conforme o retorno real deles)
+            if (detalhes.fichaCadastral || detalhes.FichaCadastral) {
+                const base64Cadastral = detalhes.fichaCadastral || detalhes.FichaCadastral;
+                filesArray.push({
+                    name: "Ficha_Cadastral_Sigafy.pdf",
+                    binary: base64Cadastral.replace(/^data:application\/pdf;base64,/, "")
+                });
+            }
+
+            if (detalhes.fichaEncaminhamento || detalhes.FichaEncaminhamento) {
+                const base64Encaminhamento = detalhes.fichaEncaminhamento || detalhes.FichaEncaminhamento;
+                filesArray.push({
+                    name: "Ficha_Encaminhamento_Sigafy.pdf",
+                    binary: base64Encaminhamento.replace(/^data:application\/pdf;base64,/, "")
+                });
+            }
+
+            // Se encontrou os arquivos, faz o envio usando o payload do suporte
+            if (filesArray.length > 0) {
+                console.log(`LOG_DEBUG: Enviando ${filesArray.length} arquivo(s) Sigafy para o Lead ID ${leadIdGerado}...`);
+                const payloadArquivos = {
+                    id: leadIdGerado,
+                    files: filesArray
+                };
+                
+                await axios.post(url, payloadArquivos, config);
+                console.log(`✅ PDFs da Sigafy anexados com sucesso ao CRM!`);
+            }
+        }
+
+        // --- ETAPA C: ATUALIZA A MEMÓRIA ---
         lead.enviadoParaCRM = true;
         if (contexto.nome) lead.nome = contexto.nome;
         atualizarIndiceLeads(sender, lead.nome, lead.origem);
