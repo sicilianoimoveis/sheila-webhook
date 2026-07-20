@@ -796,6 +796,26 @@ const response = await axios.post(url, payloadInicial);
                 else if (functionCall.name === "gerar_cotacao_seguro") {
                 const dadosCliente = functionCall.args;
                 
+                // --- PROTEÇÃO CONTRA A IA APRESSADA ---
+                // Se ela tentar chamar a função sem o CPF ou Nome, nós bloqueamos e mandamos ela perguntar!
+                if (!dadosCliente.cpf || dadosCliente.cpf.trim() === "" || !dadosCliente.nome || dadosCliente.nome.trim() === "") {
+                    console.log("LOG_DEBUG: A Sheila tentou chamar o seguro sem os dados. Bloqueando e forçando a pergunta...");
+                    
+                    const aviso = "INFORMAÇÃO INTERNA DA SHEILA: Você tentou gerar a cotação de seguro, mas o cliente AINDA NÃO FORNECEU os dados (CPF, Nome, Data de Nascimento, E-mail). Peça esses dados educadamente agora para poder agilizar a visita.";
+                    
+                    conversa.push({ "role": "user", "parts": [{ "text": aviso }] });
+                    const respCorrecao = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
+                    const textoCorrecao = respCorrecao.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+                    
+                    if (textoCorrecao) {
+                        await enviarMensagem(sender, textoCorrecao);
+                        conversa.push({ "role": "model", "parts": [{ "text": textoCorrecao }] });
+                        salvarHistorico(sender, conversa);
+                    }
+                    return res.sendStatus(200); // Interrompe a falsa cotação aqui!
+                }
+                // --------------------------------------
+                
                 // Acha o imóvel no cache para puxar dados
                 const imovelCotado = cacheImoveis.find(i => String(i.ListingID) === String(dadosCliente.id_imovel));
                 
@@ -838,8 +858,8 @@ const response = await axios.post(url, payloadInicial);
                 }, [dadosCliente.id_imovel]);
                 // --------------------------------------------------
 
-                // Instrução que volta para a Sheila
-                let instrucao = "INFORMAÇÃO INTERNA: A pré-análise foi concluída com sucesso no sistema. ";
+                // Instrução que volta para a Sheila (AGORA COM A TAG CERTA PARA SUMIR DA TELA)
+                let instrucao = "INFORMAÇÃO INTERNA DA SHEILA: A pré-análise foi concluída com sucesso no sistema. ";
                 instrucao += "REGRA ESTRITA: NÃO INFORME NENHUM VALOR DE SEGURO AO CLIENTE. ";
                 instrucao += "Diga apenas, com muita empatia, que a pré-análise deu certo e que o corretor vai apresentar as melhores condições exclusivas durante a visita ou contato.";
 
@@ -861,7 +881,7 @@ const response = await axios.post(url, payloadInicial);
     atualizarIndiceLeads(sender, nomeDoCliente);
     
     // 2. Avisa a Sheila que o nome foi salvo e pede para ela continuar o papo
-    conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: O nome '${nomeDoCliente}' foi salvo no sistema. Agora responda com empatia e naturalmente ao que o cliente acabou de falar.` }] });
+    conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA DA SHEILA: O nome '${nomeDoCliente}' foi salvo no sistema. Agora responda com empatia e naturalmente ao que o cliente acabou de falar.` }] });
     
     const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
     const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
