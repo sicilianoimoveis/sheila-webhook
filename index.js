@@ -6,6 +6,15 @@ const fs = require('fs');
 const path = require('path');
 const FormData = require('form-data'); // Adicionado para transcrição de áudio
 
+// --- FUNÇÕES DE TEMPO E PAUSA ---
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+function gerarAtrasoAleatorio(minMinutos, maxMinutos) {
+    const minMs = minMinutos * 60 * 1000;
+    const maxMs = maxMinutos * 60 * 1000;
+    return Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
+}
+
 const basicAuth = (req, res, next) => {
     // Agora ele busca do seu painel do Railway
     const loginEnv = process.env.CENTRAL_USER || "admin";
@@ -1265,48 +1274,101 @@ app.post('/enviar-crm/:sender', async (req, res) => {
     } catch (error) { res.status(500).send("Erro ao enviar para CRM."); }
 });
 
-// --- MONITORAMENTO AUTOMÁTICO DE LEADS (CORRIGIDO) ---
+// --- MONITORAMENTO AUTOMÁTICO DE LEADS (RODA A CADA 30 MIN) ---
 async function monitorarLeads() {
     const agora = new Date();
     
     for (const sender in leadsIndex) {
         const lead = leadsIndex[sender];
         
-        // 1. Travas de Escape (Ignora quem não deve ser processado)
+        // Travas de segurança essenciais
         if (lead.enviadoParaCRM) continue; 
-        if (lead.status === 'aguardando_humano') continue; // Trava: Não cobra quem espera o corretor
-        if (lead.reengajamentoEnviado) continue; // Trava: Impede o loop infinito de cobrar todo dia
+        if (lead.status === 'aguardando_humano') continue; // Protege o cliente como o Nicolas
+        if (!lead.ultimaInteracao) continue; // Evita falha se a data estiver vazia
 
-        // Evita cálculo com datas inválidas caso o lead recém-criado não tenha data
-        if (!lead.ultimaInteracao) continue;
+        const diffHoras = (agora - new Date(lead.ultimaInteracao)) / (1000 * 60 * 60);
 
-        const dataUltimaInteracao = new Date(lead.ultimaInteracao);
-        const diffHoras = (agora - dataUltimaInteracao) / (1000 * 60 * 60);
-
+        // REGRA 1: Captação (2 horas)
         if (lead.categoria === 'captacao' && diffHoras >= 2) {
             await forcarEnvioCRM(sender, "Encaminhamento automático: Lead de captação não forneceu endereço em 2h.");
             continue;
         }
 
-        if (diffHoras >= 24) {
+        // REGRA 2: Reengajamento Automático (24 horas)
+        if (diffHoras >= 24 && !lead.reengajamento24hEnviado) {
             const nomeLead = leadsIndex[sender]?.nome || "cliente";
             
+            // Aqui mantemos o envio antigo e a mensagem direto no histórico
             await enviarTemplateReengajamento(sender, nomeLead);
             
             const conversa = historicos[sender] || [];
             conversa.push({ "role": "model", "parts": [{ "text": `Oi ${nomeLead}! Notei que não tivemos retorno. Ainda tem interesse no imóvel ou precisa de ajuda com algo mais específico?` }] });
             salvarHistorico(sender, conversa);
             
-            // 2. Atualização de Estado Seguro
+            // Marca para não enviar mais a cobrança de 24h
             lead.ultimaInteracao = agora.toISOString(); 
-            lead.reengajamentoEnviado = true; // A MÁGICA AQUI: Garante que só cobre 1 vez
+            lead.reengajamento24hEnviado = true; 
             
-            // 3. IMPORTANTE: Você precisa salvar a alteração do 'lead' no seu banco de dados aqui!
-            // Exemplo: await atualizarLeadNoBanco(sender, lead);
+            // Lembre-se de salvar o 'lead' atualizado no seu banco de dados aqui
         }
     }
 }
+// Roda a cada 30 minutos (1800000 ms)
 setInterval(monitorarLeads, 1800000);
+
+// --- DISPARO MANUAL PELA CENTRAL DE LEADS ---
+// Rota ou função conectada ao botão no painel HTML
+async function dispararReengajamentoManual() {
+    console.log("Iniciando varredura para reengajamento manual...");
+    let leadsParaReengajar = [];
+
+    // --- ETAPA 1: SELECIONAR QUEM VAI RECEBER ---
+    for (const sender in leadsIndex) {
+        const lead = leadsIndex[sender];
+        
+        // Filtros (Ignora se já foi pro CRM, se espera corretor ou se já recebeu este disparo antes)
+        if (lead.enviadoParaCRM) continue; 
+        if (lead.status === 'aguardando_humano') continue;
+        if (lead.reengajamentoManualEnviado) continue; 
+
+        // Adiciona à lista de disparo apenas quem passou nos filtros
+        leadsParaReengajar.push({ sender, lead });
+    }
+
+    console.log(`Encontrados ${leadsParaReengajar.length} leads aptos para o reengajamento manual.`);
+
+    // --- ETAPA 2: DISPARAR COM PAUSAS DE 4 A 8 MINUTOS ---
+    for (let i = 0; i < leadsParaReengajar.length; i++) {
+        const { sender, lead } = leadsParaReengajar[i];
+        const nomeLead = lead.nome || "cliente";
+
+        try {
+            // Usa o novo modelo criado na Meta
+            await enviarTemplateMeta(sender, "rengajamento7", nomeLead); 
+
+            // Trava para NUNCA MAIS receber este disparo manual
+            lead.reengajamentoManualEnviado = true;
+            
+            // Lembre-se de salvar o 'lead' atualizado no seu banco de dados aqui
+            
+            console.log(`✅ [${new Date().toLocaleTimeString()}] rengajamento7 enviado para: ${nomeLead}`);
+
+        } catch (erro) {
+            console.error(`❌ Falha ao reengajar ${nomeLead}:`, erro.message);
+        }
+
+        // Aplica o intervalo de segurança (exceto no último lead da lista)
+        if (i < leadsParaReengajar.length - 1) {
+            const tempoDeEsperaMs = gerarAtrasoAleatorio(4, 8);
+            const minutos = (tempoDeEsperaMs / 1000 / 60).toFixed(1);
+            
+            console.log(`⏳ Prevenção Meta: Aguardando ${minutos} minutos antes do próximo envio...`);
+            await sleep(tempoDeEsperaMs);
+        }
+    }
+
+    console.log("🏁 Lote manual de reengajamento finalizado com sucesso!");
+}
 
 
 async function forcarEnvioCRM(sender, obs) {
