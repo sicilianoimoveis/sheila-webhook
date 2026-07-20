@@ -1467,7 +1467,7 @@ async function forcarEnvioCRM(sender, obs) {
 async function configurarWebhookImovelweb() {
     try {
         const response = await axios.put('https://api-br-open.navent.com/v1/configuracion/callbacks', {
-            url: "https://sua-url-do-servidor.com.br/webhook-imovelweb", // Substitua pela sua URL real
+            url: "https://webhook-siciliano-production.up.railway.app/webhook-imovelweb", // Substitua pela sua URL real
             authorizationHeaderKey: "Authorization",
             authorizationHeaderValue: process.env.IMOVELWEB_WEBHOOK_TOKEN,
             lenguajeCallbackBody: "PT"
