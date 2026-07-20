@@ -1218,9 +1218,17 @@ app.post('/webhook-imovelweb', async (req, res) => {
     res.status(200).send('Webhook recebido com sucesso');
 
     try {
+        // Validação de Segurança (Opcional, mas altamente recomendada)
+        const tokenRecebido = req.headers['authorization'];
+        if (tokenRecebido !== process.env.IMOVELWEB_WEBHOOK_TOKEN) {
+            console.log("LOG_DEBUG: Tentativa de acesso não autorizada ao webhook.");
+            return; 
+        }
+
         const data = req.body;
 
-        // 2. Filtra os eventos: Só queremos leads de contato (mensagens ou clique em "ver telefone")
+        // 2. Filtra os eventos: Só queremos leads de contato
+        // O manual lista os eventos CONTACTO_MENSAJE e CONTACTO
         if (data.tipoEvento !== 'CONTACTO_MENSAJE' && data.tipoEvento !== 'CONTACTO') {
             return;
         }
@@ -1456,6 +1464,42 @@ async function forcarEnvioCRM(sender, obs) {
     });
 }
 
+async function configurarWebhookImovelweb() {
+    try {
+        const response = await axios.put('https://api-br-open.navent.com/v1/configuracion/callbacks', {
+            url: "https://sua-url-do-servidor.com.br/webhook-imovelweb", // Substitua pela sua URL real
+            authorizationHeaderKey: "Authorization",
+            authorizationHeaderValue: process.env.IMOVELWEB_WEBHOOK_TOKEN,
+            lenguajeCallbackBody: "PT"
+        }, {
+            auth: {
+                username: process.env.IMOVELWEB_USER,
+                password: process.env.IMOVELWEB_PASS
+            }
+        });
+        console.log("✅ Webhook configurado no Imóvelweb!");
+    } catch (error) {
+        console.error("❌ Erro ao configurar webhook:", error.response?.data || error.message);
+    }
+}
+
+async function assinarEventosImovelweb() {
+    const eventos = ['CONTACTO_MENSAJE', 'CONTACTO'];
+    for (let evento of eventos) {
+        try {
+            await axios.put(`https://api-br-open.navent.com/v1/configuracion/callbacks/${evento}`, {}, {
+                auth: {
+                    username: process.env.IMOVELWEB_USER,
+                    password: process.env.IMOVELWEB_PASS
+                }
+            });
+            console.log(`✅ Inscrito com sucesso no evento: ${evento}`);
+        } catch (error) {
+            console.error(`❌ Erro ao se inscrever no evento ${evento}:`, error.response?.data || error.message);
+        }
+    }
+}
+
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`LOG_DEBUG: Servidor online na porta ${PORT}`);
@@ -1469,4 +1513,9 @@ app.listen(PORT, '0.0.0.0', () => {
     };
     carregarDados();
     setTimeout(carregarDados, 5000); 
+    await configurarWebhookImovelweb();
+
+await assinarEventosImovelweb();
+
+});
 });
