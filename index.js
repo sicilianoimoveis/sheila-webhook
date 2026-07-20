@@ -1265,14 +1265,23 @@ app.post('/enviar-crm/:sender', async (req, res) => {
     } catch (error) { res.status(500).send("Erro ao enviar para CRM."); }
 });
 
-// --- MONITORAMENTO AUTOMÁTICO DE LEADS ---
+// --- MONITORAMENTO AUTOMÁTICO DE LEADS (CORRIGIDO) ---
 async function monitorarLeads() {
     const agora = new Date();
+    
     for (const sender in leadsIndex) {
         const lead = leadsIndex[sender];
+        
+        // 1. Travas de Escape (Ignora quem não deve ser processado)
         if (lead.enviadoParaCRM) continue; 
+        if (lead.status === 'aguardando_humano') continue; // Trava: Não cobra quem espera o corretor
+        if (lead.reengajamentoEnviado) continue; // Trava: Impede o loop infinito de cobrar todo dia
 
-        const diffHoras = (agora - new Date(lead.ultimaInteracao)) / (1000 * 60 * 60);
+        // Evita cálculo com datas inválidas caso o lead recém-criado não tenha data
+        if (!lead.ultimaInteracao) continue;
+
+        const dataUltimaInteracao = new Date(lead.ultimaInteracao);
+        const diffHoras = (agora - dataUltimaInteracao) / (1000 * 60 * 60);
 
         if (lead.categoria === 'captacao' && diffHoras >= 2) {
             await forcarEnvioCRM(sender, "Encaminhamento automático: Lead de captação não forneceu endereço em 2h.");
@@ -1281,15 +1290,24 @@ async function monitorarLeads() {
 
         if (diffHoras >= 24) {
             const nomeLead = leadsIndex[sender]?.nome || "cliente";
+            
             await enviarTemplateReengajamento(sender, nomeLead);
+            
             const conversa = historicos[sender] || [];
             conversa.push({ "role": "model", "parts": [{ "text": `Oi ${nomeLead}! Notei que não tivemos retorno. Ainda tem interesse no imóvel ou precisa de ajuda com algo mais específico?` }] });
             salvarHistorico(sender, conversa);
+            
+            // 2. Atualização de Estado Seguro
             lead.ultimaInteracao = agora.toISOString(); 
+            lead.reengajamentoEnviado = true; // A MÁGICA AQUI: Garante que só cobre 1 vez
+            
+            // 3. IMPORTANTE: Você precisa salvar a alteração do 'lead' no seu banco de dados aqui!
+            // Exemplo: await atualizarLeadNoBanco(sender, lead);
         }
     }
 }
 setInterval(monitorarLeads, 1800000);
+
 
 async function forcarEnvioCRM(sender, obs) {
     const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
