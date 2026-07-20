@@ -588,29 +588,29 @@ async function enviarLeadParaCRM(sender, contexto, idsImoveis = []) {
         // Captura o ID gerado pelo CRM (A maioria das APIs retorna em response.data.id ou response.data.data.id)
         const leadIdGerado = response.data?.id || response.data?.data?.id;
 
-        // --- ETAPA B: UPLOAD DOS PDFS DA SIGAFY NO LEAD CRIADO ---
+       // --- ETAPA B: UPLOAD DOS PDFS DA SIGAFY NO LEAD CRIADO ---
         if (leadIdGerado && lead.dadosSeguro && lead.dadosSeguro.detalhes) {
             const detalhes = lead.dadosSeguro.detalhes;
             let filesArray = [];
 
-            // Puxa as strings base64 retornadas pela Sigafy (ajuste o nome exato da variável conforme o retorno real deles)
-            if (detalhes.fichaCadastral || detalhes.FichaCadastral) {
-                const base64Cadastral = detalhes.fichaCadastral || detalhes.FichaCadastral;
-                filesArray.push({
-                    name: "Ficha_Cadastral_Sigafy.pdf",
-                    binary: base64Cadastral.replace(/^data:application\/pdf;base64,/, "")
+            // Verifica se a estrutura nova da Sigafy (data.base64 array) existe
+            if (detalhes.data && Array.isArray(detalhes.data.base64)) {
+                // Itera sobre todos os arquivos base64 retornados
+                detalhes.data.base64.forEach((arquivoBase64, index) => {
+                    // O log mostra que vem apenas a string pura, mas mantemos o replace por segurança 
+                    // caso a API passe a enviar o prefixo mime-type no futuro
+                    const binaryData = arquivoBase64.replace(/^data:application\/pdf;base64,/, "");
+                    
+                    filesArray.push({
+                        name: `Cotacao_Sigafy_${index + 1}.pdf`, // Gera nomes automáticos (Ex: Cotacao_Sigafy_1.pdf)
+                        binary: binaryData
+                    });
                 });
+            } else {
+                console.log("LOG_DEBUG: A estrutura do base64 da Sigafy mudou ou não foi encontrada.", JSON.stringify(detalhes));
             }
 
-            if (detalhes.fichaEncaminhamento || detalhes.FichaEncaminhamento) {
-                const base64Encaminhamento = detalhes.fichaEncaminhamento || detalhes.FichaEncaminhamento;
-                filesArray.push({
-                    name: "Ficha_Encaminhamento_Sigafy.pdf",
-                    binary: base64Encaminhamento.replace(/^data:application\/pdf;base64,/, "")
-                });
-            }
-
-            // Se encontrou os arquivos, faz o envio usando o payload do suporte
+            // Se encontrou os arquivos, faz o envio usando o payload do CRM
             if (filesArray.length > 0) {
                 console.log(`LOG_DEBUG: Enviando ${filesArray.length} arquivo(s) Sigafy para o Lead ID ${leadIdGerado}...`);
                 const payloadArquivos = {
@@ -618,8 +618,12 @@ async function enviarLeadParaCRM(sender, contexto, idsImoveis = []) {
                     files: filesArray
                 };
                 
-                await axios.post(url, payloadArquivos, config);
-                console.log(`✅ PDFs da Sigafy anexados com sucesso ao CRM!`);
+                try {
+                    await axios.post(url, payloadArquivos, config);
+                    console.log(`✅ PDFs da Sigafy anexados com sucesso ao CRM!`);
+                } catch (errUpload) {
+                    console.error("❌ Erro ao fazer upload do PDF no CRM:", errUpload.response?.data || errUpload.message);
+                }
             }
         }
 
