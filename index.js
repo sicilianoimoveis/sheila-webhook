@@ -1378,6 +1378,8 @@ async function monitorarLeads() {
             lead.reengajamento24hEnviado = true; 
             
             // Lembre-se de salvar o 'lead' atualizado no seu banco de dados aqui
+
+fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
         }
     }
 }
@@ -1417,6 +1419,7 @@ async function dispararReengajamentoManual() {
             // Trava para NUNCA MAIS receber este disparo manual
             lead.reengajamentoManualEnviado = true;
             
+fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
             // Lembre-se de salvar o 'lead' atualizado no seu banco de dados aqui
             
             console.log(`✅ [${new Date().toLocaleTimeString()}] rengajamento7 enviado para: ${nomeLead}`);
