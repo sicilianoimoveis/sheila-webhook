@@ -314,7 +314,7 @@ async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
             "semImovelDefinido": dadosCliente.id_imovel ? false : true,
             "imovelPretendido": imovelPretendidoPayload, // O objeto do imovel que você já monta
             "imobiliaria": {
-                "id": 1107,
+                "id": 1840,
                 "atendente": "Siciliano Imoveis"
             },
             "pretendente": {
