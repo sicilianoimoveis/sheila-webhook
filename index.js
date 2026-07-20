@@ -209,6 +209,8 @@ async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
 
         const url = "https://projetos.sigafy.com.br/api/v1/quote/bail";
         const pLocacao = parseFloat(v(imovel?.Details?.RentalPrice)) || 1000;
+        const vCondominio = parseFloat(v(imovel?.Details?.PropertyAdministrationFee)) || 0;
+        const vIptu = parseFloat(v(imovel?.Details?.YearlyTax)) || 0;
 
         const tipoImovelXML = v(imovel?.Details?.PropertyType).toLowerCase();
         let tipoImovelSigafy = "apartamento"; 
@@ -270,11 +272,11 @@ async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
             "tipoLocacao": "residencial",
             "tipoimovel": tipoImovelSigafy || "casa", 
             "valorAluguel": pLocacao,
-            "valorCondominio": valorCondominio || 0,
+            "valorCondominio": vCondominio,
             "valorAgua": 0,
             "valorLuz": 0,
             "valorGas": 0,
-            "valorIptu": valorIptu || 0,
+            "valorIptu": vIptu,
             "codigo_imovel": dadosCliente.id_imovel || "Não informado",
             "parceiro": "",
             "vigencia_meses": 30, // Deixei 30 que é o padrão de locação
@@ -501,7 +503,10 @@ async function enviarLeadParaCRM(sender, contexto, idsImoveis = []) {
 
     // 1. Converte a intenção para os padrões do CRM (sale ou rent)
     let purposeStr = "sale"; 
-    if (contexto.interesse && contexto.interesse.toLowerCase().includes('loca')) {
+    // ACEITA SE FORÇARMOS "rent" NO CONTEXTO OU SE A PALAVRA FOR LOCAÇÃO/ALUGUEL
+    if (contexto.purpose) {
+        purposeStr = contexto.purpose; 
+    } else if (contexto.interesse && (contexto.interesse.toLowerCase().includes('loca') || contexto.interesse.toLowerCase().includes('aluguel'))) {
         purposeStr = "rent";
     }
 
@@ -530,9 +535,10 @@ async function enviarLeadParaCRM(sender, contexto, idsImoveis = []) {
 
     // 4. Monta o Payload no padrão da API
     const payload = {
-        name: lead.nome || "Cliente",
+        name: contexto.nome || lead.nome || "Cliente", // <--- CORREÇÃO: Dá prioridade ao nome enviado pela Sheila!
+        email: contexto.email || lead.email || null,   // <--- CORREÇÃO: Envia o email pro CRM se houver!
         phone: sender.replace(/\D/g, ''), 
-        purpose: purposeStr,
+        purpose: purposeStr, // <--- CORREÇÃO: Agora respeita o "rent"
         origin_id: codigoOrigem,
         origin: lead.origem || "WhatsApp",
         message: contexto.mensagem || "Atendimento inicial realizado pela Sheila (IA).",
@@ -557,7 +563,9 @@ async function enviarLeadParaCRM(sender, contexto, idsImoveis = []) {
         const response = await axios.post(url, payload, config);
         console.log(`LOG_DEBUG: Lead enviado via API com sucesso! Origem: ${codigoOrigem}, Building_ID: ${buildingId || 'Nenhum'}`);
         
+        // Atualiza a memória com o nome correto
         lead.enviadoParaCRM = true;
+        if (contexto.nome) lead.nome = contexto.nome;
         atualizarIndiceLeads(sender, lead.nome, lead.origem);
     } catch (error) {
         console.error("ERRO ao enviar para o CRM via API:", error.response?.data || error.message);
