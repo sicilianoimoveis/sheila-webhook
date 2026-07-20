@@ -1519,3 +1519,13 @@ app.listen(PORT, '0.0.0.0', () => {
 
 });
 
+(async () => {
+    try {
+        console.log("Iniciando configuração do Imóvelweb...");
+        await configurarWebhookImovelweb();
+        await assinarEventosImovelweb();
+        console.log("Configuração finalizada!");
+    } catch (error) {
+        console.log("Erro na configuração:", error.message);
+    }
+})();
