@@ -746,7 +746,7 @@ app.get('/chat/:sender', (req, res) => {
 });
 
 // Adicione isso nas suas rotas do Express
-app.post('/disparar-atualizacao-imovel/:imovelId', async (req, res) => {
+app.get('/disparar-atualizacao-imovel/:imovelId', async (req, res) => {
     if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) return res.status(403).send("Acesso negado.");
     
     const { imovelId } = req.params;
