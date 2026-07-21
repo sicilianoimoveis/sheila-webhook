@@ -166,14 +166,14 @@ async function buscarContatoProprietarioCRM(imovelId) {
             return null;
         }
 
-        // 3. Extração blindada (Testa cellphone e value na raiz ou no array contacts)
+        // 3. Extração correta procurando especificamente por cellphone
         let telefoneBruto = "";
         if (dono.contacts && Array.isArray(dono.contacts) && dono.contacts.length > 0) {
-            const contato = dono.contacts[0];
-            telefoneBruto = contato.cellphone || contato.value || contato.phone || "";
+            const contatoCel = dono.contacts.find(c => c.cellphone || c.value);
+            telefoneBruto = contatoCel?.cellphone || contatoCel?.value || "";
         }
         if (!telefoneBruto) {
-            telefoneBruto = dono.cellphone || dono.phone || "";
+            telefoneBruto = dono.cellphone || "";
         }
 
         const telefoneLimpo = String(telefoneBruto).replace(/\D/g, '');
