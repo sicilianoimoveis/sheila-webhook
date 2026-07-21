@@ -138,7 +138,7 @@ const obterPrecosFormatados = (imovel) => {
 // --- INTEGRAÇÃO SIGAFY E CRM (SEGURO FIANÇA) ---
 // ==========================================
 
-async function buscarProprietarioNoCRM(buildingId) {
+async function buscarProprietarioNoCRM(id_imovel) {
     try {
         const config = { 
             headers: { 
@@ -152,14 +152,14 @@ async function buscarProprietarioNoCRM(buildingId) {
             ...config,
             params: {
                 "include[owners]": "*",
-                "filter[id]": buildingId
+                "filter[id]": id_imovel
             }
         });
         
         const ownerId = resImovel.data?.data?.[0]?.owners?.[0]?.id; 
         
         if (!ownerId) {
-            console.log(`LOG_DEBUG: Imóvel ${buildingId} não possui proprietário no CRM.`);
+            console.log(`LOG_DEBUG: Imóvel ${id_imovel} não possui proprietário no CRM.`);
             return null;
         }
 
@@ -444,14 +444,14 @@ async function enviarTemplateAtualizacaoImovel(para, nome, endereco, tipoNegocio
 
 // --- ROTINA DE ATUALIZAÇÃO DE IMÓVEIS (RECADASTRAMENTO) ---
 
-async function buscarContatoProprietarioCRM(buildingid) {
+async function buscarContatoProprietarioCRM(id_imovel) {
     try {
         const config = { headers: { "Authorization": `Bearer ${process.env.CRM_API_TOKEN}`, "Accept": "application/json" } };
         
         // 1. Busca o imóvel para pegar o ID do dono (Baseado na imagem 1 e 4)
         const resImovel = await axios.get("https://api.apresenta.me/buildings", {
             ...config,
-            params: { "include[owners]": "*", "filter[id]": buildingid }
+            params: { "include[owners]": "*", "filter[id]": id_imovel }
         });
         
         const ownerId = resImovel.data?.data?.[0]?.owners?.[0]?.id; 
@@ -476,7 +476,7 @@ async function buscarContatoProprietarioCRM(buildingid) {
             telefone: contatoCelular.value.replace(/\D/g, '') // Apenas números
         };
     } catch (error) {
-        console.error(`Erro ao buscar contato do proprietário do imóvel ${buildingid}:`, error.message);
+        console.error(`Erro ao buscar contato do proprietário do imóvel ${id_imovel}:`, error.message);
         return null;
     }
 }
@@ -563,12 +563,12 @@ function salvarHistorico(sender, conversa) {
     fs.writeFileSync(FILE_PATH, JSON.stringify(historicos, null, 2));
 }
 
-function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, buildingid = null) {
+function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, id_imovel = null) {
     if (!leadsIndex[sender]) leadsIndex[sender] = { imoveisInteresse: [] };
     if (!leadsIndex[sender].imoveisInteresse) leadsIndex[sender].imoveisInteresse = [];
     
-    if (buildingid && !leadsIndex[sender].imoveisInteresse.includes(buildingid)) {
-        leadsIndex[sender].imoveisInteresse.push(buildingid);
+    if (id_imovel && !leadsIndex[sender].imoveisInteresse.includes(id_imovel)) {
+        leadsIndex[sender].imoveisInteresse.push(id_imovel);
     }
 
     leadsIndex[sender] = {
@@ -595,16 +595,16 @@ async function enviarLeadParaCRM(sender, contexto, idsImoveis = []) {
     }
 
     // 2. Lógica Inteligente de Imóveis
-    let buildingId = null;
+    let id_imovel = null;
     let notasAdicionais = "";
 
     if (idsImoveis && idsImoveis.length > 0) {
-        buildingId = idsImoveis[0]; 
+        id_imovel = idsImoveis[0]; 
         if (idsImoveis.length > 1) {
             notasAdicionais = `\n\n⚠️ ATENÇÃO CORRETOR: O cliente também tem interesse em visitar os imóveis IDs: ${idsImoveis.join(', ')}`;
         }
     } else if (lead.imoveisInteresse && lead.imoveisInteresse.length > 0) {
-        buildingId = lead.imoveisInteresse[lead.imoveisInteresse.length - 1]; 
+        id_imovel = lead.imoveisInteresse[lead.imoveisInteresse.length - 1]; 
     }
 
     // 3. Traduz a origem atual do lead
@@ -626,8 +626,8 @@ async function enviarLeadParaCRM(sender, contexto, idsImoveis = []) {
         notes: (contexto.observacoes || "") + notasAdicionais + alertaSeguro 
     };
 
-    if (buildingId) {
-        payload.building_id = parseInt(buildingId);
+    if (id_imovel) {
+        payload.building_id = parseInt(id_imovel);
     }
 
     try {
@@ -642,7 +642,7 @@ async function enviarLeadParaCRM(sender, contexto, idsImoveis = []) {
 
         // --- ETAPA A: CRIA O LEAD NO CRM ---
         const response = await axios.post(url, payload, config);
-        console.log(`LOG_DEBUG: Lead criado no CRM com sucesso! Origem: ${codigoOrigem}, Building_ID: ${buildingId || 'Nenhum'}`);
+        console.log(`LOG_DEBUG: Lead criado no CRM com sucesso! Origem: ${codigoOrigem}, Building_ID: ${id_imovel || 'Nenhum'}`);
         
         // Captura o ID gerado pelo CRM (A maioria das APIs retorna em response.data.id ou response.data.data.id)
         const leadIdGerado = response.data?.id || response.data?.data?.id;
@@ -744,10 +744,10 @@ app.get('/chat/:sender', (req, res) => {
 });
 
 // --- ROTA DE DIAGNÓSTICO VISUAL DO CRM ---
-app.get('/debug-imovel/:buildingid', async (req, res) => {
+app.get('/debug-imovel/:id_imovel', async (req, res) => {
     if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) return res.status(403).send("Acesso negado.");
     
-    const { buildingid } = req.params;
+    const { id_imovel } = req.params;
     
     try {
         const config = { headers: { "Authorization": `Bearer ${process.env.CRM_API_TOKEN}`, "Accept": "application/json" } };
@@ -755,7 +755,7 @@ app.get('/debug-imovel/:buildingid', async (req, res) => {
         // 1. Tenta buscar o imóvel
         const resImovel = await axios.get("https://api.apresenta.me/buildings", {
             ...config,
-            params: { "include[owners]": "*", "filter[id]": buildingid }
+            params: { "include[owners]": "*", "filter[id]": id_imovel }
         });
         
         const imovelEncontrado = resImovel.data?.data?.[0];
@@ -793,14 +793,14 @@ app.get('/debug-imovel/:buildingid', async (req, res) => {
     }
 });
 // Adicione isso nas suas rotas do Express
-app.post('/disparar-atualizacao-imovel/:buildingid', async (req, res) => {
+app.post('/disparar-atualizacao-imovel/:id_imovel', async (req, res) => {
     if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) return res.status(403).send("Acesso negado.");
     
-    const { buildingid } = req.params;
-    const imovelXML = cacheImoveis.find(i => String(i.ListingID) === String(buildingid));
+    const { id_imovel } = req.params;
+    const imovelXML = cacheImoveis.find(i => String(i.ListingID) === String(id_imovel));
     if (!imovelXML) return res.status(404).send("Imóvel não encontrado no XML.");
 
-    const resultadoDono = await buscarContatoProprietarioCRM(buildingid);
+    const resultadoDono = await buscarContatoProprietarioCRM(id_imovel);
     
     // Se retornar um objeto de erro, mostra ele na tela do Postman para sabermos exatamente o motivo!
     if (!resultadoDono || resultadoDono.erro) {
@@ -827,7 +827,7 @@ app.post('/disparar-atualizacao-imovel/:buildingid', async (req, res) => {
     const textoTemplateEnviado = `Olá ${dadosDono.nome}!\nEu sou a Sheila da Siciliano Imóveis.\nEstamos entrando em contato para atualizar o seu imóvel em ${endereco}.\nContinua disponível para ${tipoNegocioTexto}?`;
     conversa.push({ "role": "model", "parts": [{ "text": textoTemplateEnviado }] });
     
-    const contextoOculto = `INFORMAÇÃO INTERNA: O cliente a seguir é o PROPRIETÁRIO do imóvel ID ${buildingid}. O imóvel está cadastrado para ${tipoNegocioTexto} (tipo_negocio: '${tipoNegocioCRM}') pelo valor atual de R$${valorNumerico}. Você acabou de disparar a mensagem acima. Aja naturalmente a partir da resposta dele. Seu objetivo é descobrir se o imóvel continua disponível e confirmar qual é o valor atual (amount) para atualização sistêmica.`;
+    const contextoOculto = `INFORMAÇÃO INTERNA: O cliente a seguir é o PROPRIETÁRIO do imóvel ID ${id_imovel}. O imóvel está cadastrado para ${tipoNegocioTexto} (tipo_negocio: '${tipoNegocioCRM}') pelo valor atual de R$${valorNumerico}. Você acabou de disparar a mensagem acima. Aja naturalmente a partir da resposta dele. Seu objetivo é descobrir se o imóvel continua disponível e confirmar qual é o valor atual (amount) para atualização sistêmica.`;
     conversa.push({ "role": "user", "parts": [{ "text": contextoOculto }] });
     
     salvarHistorico(sender, conversa);
