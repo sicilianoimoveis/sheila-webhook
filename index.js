@@ -197,10 +197,18 @@ async function buscarProprietarioNoCRM(buildingId) {
 async function gerarTokenSigafy() {
     try {
         const url = "https://projetos.sigafy.com.br/api/v1/quote/bail-auth";
+        
+        // Trava de segurança: Se as variáveis não estiverem no Railway, ele avisa no log e para.
+        if (!process.env.SIGAFY_USER || !process.env.SIGAFY_PASS) {
+            console.error("❌ ERRO: Credenciais da Sigafy (SIGAFY_USER / SIGAFY_PASS) não encontradas no .env");
+            return null;
+        }
+
         const body = {
-            "username": process.env.SIGAFY_USER || "siciliano.api",
-            "password": process.env.SIGAFY_PASS || "ya6RO@nltms!"
+            "username": process.env.SIGAFY_USER,
+            "password": process.env.SIGAFY_PASS
         };
+        
         const response = await axios.post(url, body, {
             headers: { "Content-Type": "application/json", "Accept": "application/json" }
         });
@@ -210,6 +218,7 @@ async function gerarTokenSigafy() {
         return null;
     }
 }
+
 
 async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
     try {
@@ -251,15 +260,12 @@ async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
             }
         }
 
-        // --- 2. CORREÇÃO DO CELULAR ---
-        // Se a Sheila disser "nao informado", nós usamos o número do WhatsApp que disparou a mensagem!
-        let celularFormatado = dadosCliente.celular;
-        if (!celularFormatado || celularFormatado.toLowerCase().includes("nao")) {
-            celularFormatado = telefoneCliente;
-        }
+                // --- 2. LIMPEZA DE DADOS (CPF E CELULAR) ---
+        // Pega o que o cliente digitou e remove TUDO que não for número (pontos, traços, espaços)
+        const cpfLimpo = dadosCliente.cpf ? dadosCliente.cpf.replace(/\D/g, '') : "";
+        const celularLimpo = dadosCliente.celular ? dadosCliente.celular.replace(/\D/g, '') : "";
 
         // --- 3. CORREÇÃO DO ENDEREÇO DO IMÓVEL ---
-        // Puxa do seu XML para satisfazer a API da Sigafy
         const loc = imovel?.Location || {};
         const imovelPretendidoPayload = {
             "cep": v(loc.ZipCode) || "00000-000",
@@ -269,10 +275,11 @@ async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
             "complemento": v(loc.Complement) || "Sem complemento",
             "bairro": v(loc.Neighborhood) || "Não informado",
             "cidade": v(loc.City) || "Não informado",
-            "estado": "RJ" // <--- FIXADO EM RJ PARA EVITAR ERROS DA SIGAFY
+            "estado": "RJ" 
         };
 
         const payload = {
+            // ... (mantenha os outros campos do payload iguais até a parte do pretendente)
             "gratuito": true,
             "observacao": "Cotação via Sheila IA",
             "tipoGarantia": "seguro fianca",
@@ -288,57 +295,37 @@ async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
             "valorIptu": vIptu,
             "codigo_imovel": dadosCliente.id_imovel || "Não informado",
             "parceiro": "",
-            "vigencia_meses": 30, // Deixei 30 que é o padrão de locação
+            "vigencia_meses": 30,
             "administracao": "Sim",
             "atividade": "Atividade",
             "experiencia": "Experiencia no ramo",
             "contato": dadosCliente.nome,
             "solidario": {
-                "solidarios_conjulge": "",
-                "solidarios_cpf": "",
-                "solidarios_nome": "",
-                "solidarios_rg": "",
-                "solidarios_date_expedition": "",
-                "solidarios_orgao_emissor": "",
-                "solidarios_nascimento": "",
-                "solidarios_fone": "",
-                "solidarios_email": "",
-                "solidarios_civil": "",
-                "solidarios_degree": "",
-                "solidarios_sexo": ""
+                "solidarios_conjulge": "", "solidarios_cpf": "", "solidarios_nome": "", "solidarios_rg": "", "solidarios_date_expedition": "", "solidarios_orgao_emissor": "", "solidarios_nascimento": "", "solidarios_fone": "", "solidarios_email": "", "solidarios_civil": "", "solidarios_degree": "", "solidarios_sexo": ""
             },
             "partners": {
-                "partners_cpf": "",
-                "partners_nome": "",
-                "partners_fone": "",
-                "partners_email": "",
-                "partners_percent": ""
+                "partners_cpf": "", "partners_nome": "", "partners_fone": "", "partners_email": "", "partners_percent": ""
             },
             "cobertura": {
-                "danos": true,
-                "pinturaInterna": true,
-                "multa": true,
-                "pinturaExterna": false
+                "danos": true, "pinturaInterna": true, "multa": true, "pinturaExterna": false
             },
             "semImovelDefinido": dadosCliente.id_imovel ? false : true,
-            "imovelPretendido": imovelPretendidoPayload, // O objeto do imovel que você já monta
+            "imovelPretendido": imovelPretendidoPayload,
             "imobiliaria": {
                 "id": 1840,
                 "atendente": "Siciliano Imoveis"
             },
             "pretendente": {
-                "documento": dadosCliente.cpf,
+                "documento": cpfLimpo, // Envia o CPF 100% limpo (só números)
                 "nome": dadosCliente.nome,
-                "sexo": "MASCULINO", // Ideal manter algo genérico ou puxar do cadastro
+                "sexo": "MASCULINO", 
                 "dataNascimento": dataNascFormatada,
                 "estadoCivil": "Solteiro(a)",
-                "celular": celularFormatado,
-                "fone": celularFormatado,
+                "celular": celularLimpo, // Usa estritamente o celular que a Sheila perguntou
+                "fone": celularLimpo,
                 "email": dadosCliente.email || "nao_informado@email.com",
                 "rg": {
-                    "numero": "",
-                    "expedicao": "",
-                    "orgaoEmissor": ""
+                    "numero": "", "expedicao": "", "orgaoEmissor": ""
                 },
                 "contato": dadosCliente.nome,
                 "cnae": ""
@@ -351,6 +338,7 @@ async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
                 "estadoCivil": "Solteiro(a)"
             }
         };
+
         const response = await axios.post(url, payload, {
             headers: {
                 "Authorization": `Bearer ${token}`,
@@ -819,9 +807,9 @@ app.post('/webhook', async (req, res) => {
                 "required": ["intencao"]
             }
         },
-        { 
+                { 
             "name": "gerar_cotacao_seguro", 
-            "description": "Chame APENAS QUANDO o cliente quiser alugar um imóvel E já tiver fornecido TODOS os dados obrigatórios (Nome, CPF, Data de Nascimento, E-mail). Se o cliente enviar os dados em partes ou faltar alguma informação, NÃO CHAME A FUNÇÃO AINDA. Pergunte de forma amigável qual o dado que está faltando.", 
+            "description": "Chame APENAS QUANDO o cliente quiser alugar um imóvel E já tiver fornecido TODOS os dados obrigatórios: Nome, CPF, Data de Nascimento, E-mail e Celular. Se o cliente enviar os dados em partes ou faltar o celular, NÃO CHAME A FUNÇÃO. Pergunte de forma amigável qual o dado que está faltando.", 
             "parameters": { 
                 "type": "object", 
                 "properties": { 
@@ -829,12 +817,13 @@ app.post('/webhook', async (req, res) => {
                     "cpf": { "type": "string", "description": "CPF do cliente (apenas números)" },
                     "dataNascimento": { "type": "string", "description": "Data de nascimento (DD/MM/AAAA)" },
                     "email": { "type": "string", "description": "E-mail do cliente" },
-                    "celular": { "type": "string", "description": "Celular do cliente com DDD" },
+                    "celular": { "type": "string", "description": "Celular do pretendente com DDD. Pergunte ao cliente caso não tenha sido informado no texto." },
                     "id_imovel": { "type": "string", "description": "O ID (referência) do imóvel que ele quer alugar." }
                 }, 
                 "required": ["nome", "cpf", "dataNascimento", "email", "celular", "id_imovel"] 
             } 
         },
+
         { 
             "name": "qualificar_lead", 
             "description": "Chame ao perceber interesse claro em visita ou falar com corretor. Sempre extraia o nome do cliente da conversa.", 
@@ -876,12 +865,14 @@ const response = await axios.post(url, payloadInicial);
                 else if (functionCall.name === "gerar_cotacao_seguro") {
                 const dadosCliente = functionCall.args;
                 
-                // --- PROTEÇÃO CONTRA A IA APRESSADA ---
-                // Se ela tentar chamar a função sem o CPF ou Nome, nós bloqueamos e mandamos ela perguntar!
-                if (!dadosCliente.cpf || dadosCliente.cpf.trim() === "" || !dadosCliente.nome || dadosCliente.nome.trim() === "") {
-                    console.log("LOG_DEBUG: A Sheila tentou chamar o seguro sem os dados. Bloqueando e forçando a pergunta...");
+                                // --- PROTEÇÃO CONTRA A IA APRESSADA ---
+                if (!dadosCliente.cpf || dadosCliente.cpf.trim() === "" || 
+                    !dadosCliente.nome || dadosCliente.nome.trim() === "" ||
+                    !dadosCliente.celular || dadosCliente.celular.trim() === "") {
                     
-                    const aviso = "INFORMAÇÃO INTERNA DA SHEILA: Você tentou gerar a cotação de seguro, mas o cliente AINDA NÃO FORNECEU os dados (CPF, Nome, Data de Nascimento, E-mail). Peça esses dados educadamente agora para poder agilizar a visita.";
+                    console.log("LOG_DEBUG: A Sheila tentou chamar o seguro sem dados completos. Bloqueando...");
+                    
+                    const aviso = "INFORMAÇÃO INTERNA DA SHEILA: Você tentou gerar a cotação de seguro, mas o cliente AINDA NÃO FORNECEU todos os dados (CPF, Nome, Data de Nascimento, E-mail e Celular). Peça os dados exatos que faltam agora para poder agilizar a visita.";
                     
                     conversa.push({ "role": "user", "parts": [{ "text": aviso }] });
                     const respCorrecao = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
@@ -894,6 +885,8 @@ const response = await axios.post(url, payloadInicial);
                     }
                     return res.sendStatus(200); // Interrompe a falsa cotação aqui!
                 }
+                // --------------------------------------
+
                 // --------------------------------------
                 
                 // Acha o imóvel no cache para puxar dados
