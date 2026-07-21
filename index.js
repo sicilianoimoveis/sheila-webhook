@@ -1185,15 +1185,24 @@ app.post('/remover-urgencia/:sender', async (req, res) => {
     res.status(200).send("Lead não urgente.");
 });
 
+// --- MONITORAMENTO AUTOMÁTICO DE LEADS (RODA A CADA 30 MIN) ---
 async function monitorarLeads() {
     const agora = new Date();
+    
     for (const sender in leadsIndex) {
         const lead = leadsIndex[sender];
+        
+        // Travas de segurança essenciais
         if (lead.enviadoParaCRM) continue; 
-        if (lead.status === 'aguardando_humano') continue;
+        if (lead.status === 'aguardando_humano') continue; 
         if (!lead.ultimaInteracao) continue; 
+        
+        // 🚨 TRAVA CRÍTICA ADICIONADA: Ignora quem é proprietário! 🚨
+        if (lead.isProprietario) continue;
 
         const diffHoras = (agora - new Date(lead.ultimaInteracao)) / (1000 * 60 * 60);
+
+        // ... (resto da função continua igualzinho)
 
         if (lead.categoria === 'captacao' && diffHoras >= 2) {
             await forcarEnvioCRM(sender, "Encaminhamento automático: captação não forneceu endereço.");
