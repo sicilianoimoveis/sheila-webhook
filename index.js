@@ -175,18 +175,31 @@ async function buscarProprietarioNoCRM(buildingId) {
         const dono = resOwner.data?.data?.[0];
         if (!dono) return null;
 
+        // 3. Formatação da Data de Nascimento
         let dataFormatada = "01/01/1980";
         if (dono.birth_date) {
             const partes = dono.birth_date.split('-');
             if (partes.length === 3) dataFormatada = `${partes[2]}/${partes[1]}/${partes[0]}`;
         }
 
+        // 4. Extração segura do telefone (pegando o cellphone do array contacts)
+        let telefoneBruto = "";
+        if (dono.contacts && Array.isArray(dono.contacts) && dono.contacts.length > 0) {
+            const contatoCel = dono.contacts.find(c => c.cellphone);
+            telefoneBruto = contatoCel ? contatoCel.cellphone : (dono.contacts[0]?.cellphone || "");
+        } else {
+            telefoneBruto = dono.cellphone || "";
+        }
+        
+        const telefoneLimpo = String(telefoneBruto).replace(/\D/g, '');
+
         return {
             tipoPessoa: dono.juridical ? "juridica" : "fisica",
             documento: dono.taxid || "000.000.000-00", 
             nome: dono.name || "Proprietário",
             dataNascimento: dataFormatada,
-            estadoCivil: dono.marital || "Solteiro(a)"
+            estadoCivil: dono.marital || "Solteiro(a)",
+            telefone: telefoneLimpo // <-- Adicionado para a rota de recadastramento usar!
         };
     } catch (error) {
         console.error("Erro ao buscar proprietário no CRM:", error.message);
@@ -439,14 +452,14 @@ async function enviarTemplateAtualizacaoImovel(para, nome, endereco, tipoNegocio
 
 // --- ROTINA DE ATUALIZAÇÃO DE IMÓVEIS (RECADASTRAMENTO) ---
 
-async function buscarContatoProprietarioCRM(imovelId) {
+async function buscarContatoProprietarioCRM(buildingid) {
     try {
         const config = { headers: { "Authorization": `Bearer ${process.env.CRM_API_TOKEN}`, "Accept": "application/json" } };
         
         // 1. Busca o imóvel para pegar o ID do dono (Baseado na imagem 1 e 4)
         const resImovel = await axios.get("https://api.apresenta.me/buildings", {
             ...config,
-            params: { "include[owners]": "*", "filter[id]": imovelId }
+            params: { "include[owners]": "*", "filter[id]": buildingid }
         });
         
         const ownerId = resImovel.data?.data?.[0]?.owners?.[0]?.id; 
@@ -471,7 +484,7 @@ async function buscarContatoProprietarioCRM(imovelId) {
             telefone: contatoCelular.value.replace(/\D/g, '') // Apenas números
         };
     } catch (error) {
-        console.error(`Erro ao buscar contato do proprietário do imóvel ${imovelId}:`, error.message);
+        console.error(`Erro ao buscar contato do proprietário do imóvel ${buildingid}:`, error.message);
         return null;
     }
 }
@@ -558,12 +571,12 @@ function salvarHistorico(sender, conversa) {
     fs.writeFileSync(FILE_PATH, JSON.stringify(historicos, null, 2));
 }
 
-function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, imovelId = null) {
+function atualizarIndiceLeads(sender, nome, origem, statusCRM = false, buildingid = null) {
     if (!leadsIndex[sender]) leadsIndex[sender] = { imoveisInteresse: [] };
     if (!leadsIndex[sender].imoveisInteresse) leadsIndex[sender].imoveisInteresse = [];
     
-    if (imovelId && !leadsIndex[sender].imoveisInteresse.includes(imovelId)) {
-        leadsIndex[sender].imoveisInteresse.push(imovelId);
+    if (buildingid && !leadsIndex[sender].imoveisInteresse.includes(buildingid)) {
+        leadsIndex[sender].imoveisInteresse.push(buildingid);
     }
 
     leadsIndex[sender] = {
@@ -739,10 +752,10 @@ app.get('/chat/:sender', (req, res) => {
 });
 
 // --- ROTA DE DIAGNÓSTICO VISUAL DO CRM ---
-app.get('/debug-imovel/:imovelId', async (req, res) => {
+app.get('/debug-imovel/:buildingid', async (req, res) => {
     if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) return res.status(403).send("Acesso negado.");
     
-    const { imovelId } = req.params;
+    const { buildingid } = req.params;
     
     try {
         const config = { headers: { "Authorization": `Bearer ${process.env.CRM_API_TOKEN}`, "Accept": "application/json" } };
@@ -750,7 +763,7 @@ app.get('/debug-imovel/:imovelId', async (req, res) => {
         // 1. Tenta buscar o imóvel
         const resImovel = await axios.get("https://api.apresenta.me/buildings", {
             ...config,
-            params: { "include[owners]": "*", "filter[id]": imovelId }
+            params: { "include[owners]": "*", "filter[id]": buildingid }
         });
         
         const imovelEncontrado = resImovel.data?.data?.[0];
@@ -788,14 +801,14 @@ app.get('/debug-imovel/:imovelId', async (req, res) => {
     }
 });
 // Adicione isso nas suas rotas do Express
-app.post('/disparar-atualizacao-imovel/:imovelId', async (req, res) => {
+app.post('/disparar-atualizacao-imovel/:buildingid', async (req, res) => {
     if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) return res.status(403).send("Acesso negado.");
     
-    const { imovelId } = req.params;
-    const imovelXML = cacheImoveis.find(i => String(i.ListingID) === String(imovelId));
+    const { buildingid } = req.params;
+    const imovelXML = cacheImoveis.find(i => String(i.ListingID) === String(buildingid));
     if (!imovelXML) return res.status(404).send("Imóvel não encontrado no XML.");
 
-    const resultadoDono = await buscarContatoProprietarioCRM(imovelId);
+    const resultadoDono = await buscarContatoProprietarioCRM(buildingid);
     
     // Se retornar um objeto de erro, mostra ele na tela do Postman para sabermos exatamente o motivo!
     if (!resultadoDono || resultadoDono.erro) {
@@ -822,7 +835,7 @@ app.post('/disparar-atualizacao-imovel/:imovelId', async (req, res) => {
     const textoTemplateEnviado = `Olá ${dadosDono.nome}!\nEu sou a Sheila da Siciliano Imóveis.\nEstamos entrando em contato para atualizar o seu imóvel em ${endereco}.\nContinua disponível para ${tipoNegocioTexto}?`;
     conversa.push({ "role": "model", "parts": [{ "text": textoTemplateEnviado }] });
     
-    const contextoOculto = `INFORMAÇÃO INTERNA: O cliente a seguir é o PROPRIETÁRIO do imóvel ID ${imovelId}. O imóvel está cadastrado para ${tipoNegocioTexto} (tipo_negocio: '${tipoNegocioCRM}') pelo valor atual de R$${valorNumerico}. Você acabou de disparar a mensagem acima. Aja naturalmente a partir da resposta dele. Seu objetivo é descobrir se o imóvel continua disponível e confirmar qual é o valor atual (amount) para atualização sistêmica.`;
+    const contextoOculto = `INFORMAÇÃO INTERNA: O cliente a seguir é o PROPRIETÁRIO do imóvel ID ${buildingid}. O imóvel está cadastrado para ${tipoNegocioTexto} (tipo_negocio: '${tipoNegocioCRM}') pelo valor atual de R$${valorNumerico}. Você acabou de disparar a mensagem acima. Aja naturalmente a partir da resposta dele. Seu objetivo é descobrir se o imóvel continua disponível e confirmar qual é o valor atual (amount) para atualização sistêmica.`;
     conversa.push({ "role": "user", "parts": [{ "text": contextoOculto }] });
     
     salvarHistorico(sender, conversa);
