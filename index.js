@@ -719,58 +719,47 @@ app.post('/webhook', async (req, res) => {
                 };
 
                 try {
-                    // 1. Consulta rápida para pegar os IDs das finalidades existentes
-                    const getRes = await axios.get(`https://api.apresenta.me/buildings`, {
-                        ...configCRM,
-                        params: { "filter[id]": id_imovel, "include[purposes]": "*" }
-                    });
-                    
-                    const finalidadesExistentes = getRes.data?.data?.[0]?.purposes || [];
-                    
-                    // 2. Mapeia as finalidades mantendo os IDs para não gerar o erro de "Removida"
-                    const updatedPurposes = finalidadesExistentes.map(p => {
-                        if (p.purpose === tipo_negocio) {
-                            return {
-                                id: p.id, // O segredo está aqui: mandar o ID de volta!
-                                purpose: p.purpose,
-                                amount: valor_atualizado,
-                                amount_max: valor_atualizado
-                            };
-                        }
-                        return { id: p.id, purpose: p.purpose, amount: p.amount, amount_max: p.amount_max };
-                    });
-
-                    // Se por acaso o imóvel não tinha essa finalidade cadastrada, adiciona como nova
-                    if (updatedPurposes.length === 0 || !updatedPurposes.find(p => p.purpose === tipo_negocio)) {
-                        updatedPurposes.push({ purpose: tipo_negocio, amount: valor_atualizado, amount_max: valor_atualizado });
-                    }
-
-                    // 3. Monta o Payload exato e dispara
-                    const urlUpdate = `https://api.apresenta.me/buildings/${id_imovel}`; 
-                    const payloadUpdate = {
+                    // 1. ATUALIZA O STATUS DO IMÓVEL (Sem tocar nos preços para não dar "Removida")
+                    const urlBuilding = `https://api.apresenta.me/buildings/${id_imovel}`;
+                    await axios.put(urlBuilding, {
                         lock: lock,
-                        status: status,
-                        purposes: updatedPurposes
+                        status: status
+                    }, configCRM);
+
+                    // 2. ATUALIZA O PREÇO NO ENDPOINT ESPECÍFICO (Exatamente como o suporte pediu)
+                    const urlPurpose = `https://api.apresenta.me/buildings/${id_imovel}/purposes`;
+                    const payloadPurpose = {
+                        type: tipo_negocio, // "sale" ou "rent"
+                        currency: "BRL",    // O campo obrigatório que faltava
+                        amount: valor_atualizado,
+                        amount_max: valor_atualizado
                     };
 
-                    await axios.put(urlUpdate, payloadUpdate, configCRM);
-                    console.log(`✅ Imóvel ${id_imovel} atualizado no CRM com sucesso (Preço ajustado sem remover finalidade)!`);
+                    await axios.post(urlPurpose, payloadPurpose, configCRM);
+
+                    console.log(`✅ Imóvel ${id_imovel} atualizado no CRM com sucesso (Status e Preço corrigidos)!`);
                     
+                    // Limpa o estado de proprietário para encerrar o ciclo
                     if (leadsIndex[sender]) {
                         leadsIndex[sender].isProprietario = false;
                         fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
                     }
 
-                    conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: O sistema foi atualizado com sucesso (Status: ${status}). Agradeça ao proprietário pela atenção e encerre o atendimento educadamente.` }] });
+                    // Pede para a Sheila agradecer
+                    conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: O sistema foi atualizado com sucesso (Status: ${status}, Valor: R$${valor_atualizado}). Agradeça ao proprietário pela atenção e encerre o atendimento educadamente.` }] });
 
                 } catch (errorUpdate) {
                     console.error("❌ Erro ao atualizar imóvel no CRM:", errorUpdate.response?.data || errorUpdate.message);
                     conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: Houve uma falha sistêmica ao tentar salvar. Agradeça ao cliente pela informação e diga que seus dados já foram anotados.` }] });
                 }
 
+                // Gera a mensagem final da Sheila
                 const promptFinal = typeof promptDinamico !== 'undefined' ? promptDinamico : process.env.SYSTEM_PROMPT;
                 const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": promptFinal }] }, "contents": conversa });
+                
+                // Passa a mensagem pela nova função de limpeza que bloqueia códigos JSON
                 let texto = limparTextoIA(respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text);
+                
                 if (texto) {
                     await enviarMensagem(sender, texto);
                     conversa.push({ "role": "model", "parts": [{ "text": texto }] });
