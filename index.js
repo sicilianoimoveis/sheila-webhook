@@ -256,6 +256,7 @@ async function iniciarVarreduraRecadastramentoAutomatica() {
     console.log("🏁 Varredura de recadastramento de imóveis finalizada!");
 }
 
+// Função auxiliar que centraliza a lógica de envio (separada da rota do Express)
 async function processarDisparoRecadastramento(id_imovel) {
     const imovelXML = cacheImoveis.find(i => String(i.ListingID) === String(id_imovel));
     if (!imovelXML) throw new Error("Imóvel não encontrado no XML.");
@@ -266,11 +267,19 @@ async function processarDisparoRecadastramento(id_imovel) {
     }
 
     const dadosDono = resultadoDono;
-    const sender = `55${dadosDono.telefone}`; 
+    
+    // --- CORREÇÃO CRÍTICA: PREVENÇÃO DO DUPLO 55 ---
+    let sender = dadosDono.telefone;
+    if (!sender.startsWith("55")) {
+        sender = `55${sender}`;
+    }
+    // -----------------------------------------------
+
     const endereco = obterEnderecoSeguro(imovelXML);
     const precos = obterPrecosFormatados(imovelXML);
     const tipoNegocioTexto = precos.pVenda > 0 ? "venda" : "locação";
 
+    // Salva o estado de proprietário e o ID do imóvel no índice persistente do lead CORRETO
     if (!leadsIndex[sender]) leadsIndex[sender] = {};
     leadsIndex[sender].isProprietario = true;
     leadsIndex[sender].imovelAtualizando = id_imovel; 
@@ -278,28 +287,14 @@ async function processarDisparoRecadastramento(id_imovel) {
 
     let conversa = obterHistorico(sender);
     
+    // Dispara o template via Meta
     await enviarTemplateAtualizacaoImovel(sender, dadosDono.nome, endereco, tipoNegocioTexto);
     
+    // Adiciona apenas a mensagem oficial do modelo no histórico (mantendo a alternância perfeita)
     const textoTemplateEnviado = `Olá ${dadosDono.nome}!\nEu sou a Sheila da Siciliano Imóveis.\nEstamos entrando em contato para atualizar o seu imóvel em ${endereco}.\nContinua disponível para ${tipoNegocioTexto}?`;
     conversa.push({ "role": "model", "parts": [{ "text": textoTemplateEnviado }] });
     
     salvarHistorico(sender, conversa);
-}
-
-async function gerarTokenSigafy() {
-    try {
-        const url = "https://projetos.sigafy.com.br/api/v1/quote/bail-auth";
-        if (!process.env.SIGAFY_USER || !process.env.SIGAFY_PASS) {
-            console.error("❌ ERRO: Credenciais da Sigafy não encontradas");
-            return null;
-        }
-        const body = { "username": process.env.SIGAFY_USER, "password": process.env.SIGAFY_PASS };
-        const response = await axios.post(url, body, { headers: { "Content-Type": "application/json", "Accept": "application/json" } });
-        return response.data.token;
-    } catch (error) {
-        console.error("Erro ao gerar token Sigafy:", error.response?.data || error.message);
-        return null;
-    }
 }
 
 async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
