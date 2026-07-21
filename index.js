@@ -1017,8 +1017,8 @@ app.post('/webhook', async (req, res) => {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`;
         conversa.push({ "role": "user", "parts": [{ "text": textoCliente }] });
 
-        // --- PROMPT DINÂMICO BLINDADO COM LOGS DE CONFIRMAÇÃO ---
-        let promptDinamico = process.env.SYSTEM_PROMPT || "Você é a Sheila, corretora da Siciliano Imóveis.";
+       // --- CORREÇÃO RADICAL: SE FOR PROPRIETÁRIO, O PROMPT É EXCLUSIVO E ANULA O DE VENDAS ---
+        let promptDinamico = "";
 
         if (leadsIndex[sender]?.isProprietario && leadsIndex[sender]?.imovelAtualizando) {
             const idImovelProp = leadsIndex[sender].imovelAtualizando;
@@ -1028,18 +1028,22 @@ app.post('/webhook', async (req, res) => {
             const tipoNegocioTxt = precosProp.pVenda > 0 ? "venda" : "locação";
             const tipoNegocioCRM = precosProp.pVenda > 0 ? "sale" : "rent";
 
-            console.log(`🚨 [SHEILA ATIVOU MODO PROPRIETÁRIO] Imóvel ID: ${idImovelProp} | Negócio: ${tipoNegocioTxt}`);
+            console.log(`🔒 [MODO EXCLUSIVO PROPRIETÁRIO ATIVADO] Ignorando funal de vendas. Imóvel ID: ${idImovelProp}`);
 
-            promptDinamico += `\n\n[DIRETRIZ DE EXCEÇÃO TEMPORÁRIA OBRIGATÓRIA]: O cliente atual (número ${sender}) é o PROPRIETÁRIO do imóvel ID ${idImovelProp}. 
-            O ID EXATO DESTE IMÓVEL É ${idImovelProp}. 
-            O imóvel está cadastrado para ${tipoNegocioTxt} (tipo_negocio: '${tipoNegocioCRM}') pelo valor atual de R$${valorNumProp}. 
+            // Este prompt substitui 100% o prompt principal, eliminando qualquer chance de ela pedir o perfil de compra/aluguel
+            promptDinamico = `Você é a Sheila, assistente virtual da Siciliano Imóveis. 
+            ATENÇÃO ABSOLUTA: Você está conversando com o PROPRIETÁRIO do imóvel ID ${idImovelProp}. 
+            O imóvel está cadastrado para ${tipoNegocioTxt} (tipo_negocio: '${tipoNegocioCRM}') pelo valor atual de R$${valorNumProp}.
             
-            REGRAS ESTRITAS PARA ESTE ATENDIMENTO:
-            1. NUNCA pergunte o endereço, a referência ou o código do imóvel ao proprietário. Você JÁ TEM esses dados salvos no sistema.
-            2. Seu único objetivo agora é confirmar se o imóvel continua disponível e qual é o valor atual.
-            3. Assim que o proprietário confirmar a disponibilidade, chame IMEDIATAMENTE a função 'atualizar_status_imovel_crm' passando obrigatoriamente o ID ${idImovelProp}.`;
+            REGRAS OBRIGATÓRIAS PARA ESTE ATENDIMENTO:
+            1. É ESTRITAMENTE PROIBIDO perguntar se ele quer comprar ou alugar, qual bairro busca ou quantidade de quartos. Ele é o dono do imóvel, não um cliente em busca de compra.
+            2. NUNCA pergunte o endereço, a referência ou o código do imóvel. Você já tem esses dados na memória.
+            3. Seu único objetivo nesta conversa é confirmar se o imóvel continua disponível e se o valor continua o mesmo.
+            4. Assim que o proprietário confirmar a disponibilidade (ex: respondendo "sim continua" ou afins), chame IMEDIATAMENTE a função 'atualizar_status_imovel_crm' preenchendo obrigatoriamente: id_imovel: "${idImovelProp}", tipo_negocio: "${tipoNegocioCRM}", valor_atualizado: ${valorNumProp}, lock: "free", status: "active".`;
+
         } else {
-            console.log(`ℹ️ [MODO LEAD NORMAL] O número ${sender} não tem flag de proprietário ativa.`);
+            // Se não for proprietário, usa o prompt normal de atendimento de leads/vendas do Railway
+            promptDinamico = process.env.SYSTEM_PROMPT || "Você é a Sheila, corretora da Siciliano Imóveis.";
         }
         const payloadInicial = {
             "systemInstruction": { "parts": [{ "text": promptDinamico }] },
