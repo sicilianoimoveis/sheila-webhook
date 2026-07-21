@@ -745,8 +745,57 @@ app.get('/chat/:sender', (req, res) => {
     res.send(html);
 });
 
+// --- ROTA DE DIAGNÓSTICO VISUAL DO CRM ---
+app.get('/debug-imovel/:imovelId', async (req, res) => {
+    if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) return res.status(403).send("Acesso negado.");
+    
+    const { imovelId } = req.params;
+    
+    try {
+        const config = { headers: { "Authorization": `Bearer ${process.env.CRM_API_TOKEN}`, "Accept": "application/json" } };
+        
+        // 1. Tenta buscar o imóvel
+        const resImovel = await axios.get("https://api.apresenta.me/buildings", {
+            ...config,
+            params: { "include[owners]": "*", "filter[id]": imovelId }
+        });
+        
+        const imovelEncontrado = resImovel.data?.data?.[0];
+        const ownerId = imovelEncontrado?.owners?.[0]?.id;
+        
+        if (!ownerId) {
+            return res.json({
+                status: "FALHA",
+                motivo: "O imóvel foi encontrado, mas NÃO possui nenhum 'ownerId' (proprietário) vinculado a ele no CRM.",
+                respostaBrutaImovel: imovelEncontrado
+            });
+        }
+
+        // 2. Tenta buscar o proprietário
+        const resOwner = await axios.get("https://api.apresenta.me/persons", {
+            ...config,
+            params: { "include[contacts]": "*", "filter[id]": ownerId }
+        });
+        
+        const proprietarioEncontrado = resOwner.data?.data?.[0];
+
+        // Retorna tudo limpo na tela do navegador
+        res.json({
+            status: "SUCESSO",
+            ownerIdDetectado: ownerId,
+            imovel: imovelEncontrado,
+            proprietarioNoCRM: proprietarioEncontrado
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            status: "ERRO_API",
+            detalhe: error.response?.data || error.message
+        });
+    }
+});
 // Adicione isso nas suas rotas do Express
-app.get('/disparar-atualizacao-imovel/:imovelId', async (req, res) => {
+app.post('/disparar-atualizacao-imovel/:imovelId', async (req, res) => {
     if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) return res.status(403).send("Acesso negado.");
     
     const { imovelId } = req.params;
