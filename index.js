@@ -214,45 +214,85 @@ const carregarRecadastros = () => {
 carregarRecadastros();
 
 async function iniciarVarreduraRecadastramentoAutomatica() {
-    console.log("🔍 Iniciando varredura automática de recadastramento de imóveis...");
+    console.log("🔍 Iniciando varredura diária de recadastramento direto na base do CRM...");
     const agora = new Date();
     let imoveisParaDisparar = [];
 
     for (const imovel of cacheImoveis) {
         const idImovel = String(imovel.ListingID);
-        const ultimoDisparo = recadastroIndex[idImovel]?.ultimaDataDisparo;
-        let deveDisparar = false;
-
-        if (!ultimoDisparo) {
-            deveDisparar = true;
-        } else {
-            const diasPassados = (agora - new Date(ultimoDisparo)) / (1000 * 60 * 60 * 24);
-            if (diasPassados >= 45) {
-                deveDisparar = true;
+        
+        // 1. TRAVA ANTI-SPAM (Memória local do Bot)
+        // Evita mandar mensagem todo dia caso o proprietário ignore o contato
+        const ultimoDisparoBot = recadastroIndex[idImovel]?.ultimaDataDisparo;
+        if (ultimoDisparoBot) {
+            const diasDesdeUltimoContato = (agora - new Date(ultimoDisparoBot)) / (1000 * 60 * 60 * 24);
+            if (diasDesdeUltimoContato < 45) {
+                continue; // Pula para o próximo imóvel
             }
         }
 
-        if (deveDisparar) {
-            imoveisParaDisparar.push(idImovel);
+        // 2. CONSULTA A FONTE DA VERDADE (O CRM)
+        try {
+            const configCRM = {
+                headers: {
+                    "Authorization": `Bearer ${process.env.CRM_API_TOKEN}`,
+                    "Accept": "application/json"
+                }
+            };
+            
+            // Puxa os dados atualizados do imóvel
+            const resCrm = await axios.get("https://api.apresenta.me/buildings", {
+                ...configCRM,
+                params: { "filter[id]": idImovel }
+            });
+
+            const dadosImovelCrm = resCrm.data?.data?.[0];
+            if (!dadosImovelCrm) continue;
+
+            // Puxa a data que você sugeriu (ou a de edição do cadastro como fallback)
+            const dataAtualizacaoCrm = dadosImovelCrm.amount_updated_at || dadosImovelCrm.updated_at || dadosImovelCrm.created_at;
+            
+            if (dataAtualizacaoCrm) {
+                const diasDesatualizado = (agora - new Date(dataAtualizacaoCrm)) / (1000 * 60 * 60 * 24);
+                
+                // Se no CRM faz mais de 45 dias que ninguém altera o valor, entra na fila de envio
+                if (diasDesatualizado >= 45) {
+                    imoveisParaDisparar.push(idImovel);
+                }
+            }
+
+        } catch (error) {
+            console.error(`⚠️ Erro ao consultar a data do imóvel ${idImovel} no CRM:`, error.message);
         }
+
+        // Pausa de 500ms para não sobrecarregar e derrubar a API da Apresenta.me com várias consultas
+        await sleep(500); 
     }
 
-    console.log(`📋 Total de imóveis elegíveis para recadastramento hoje: ${imoveisParaDisparar.length}`);
+    console.log(`📋 Total de imóveis desatualizados no CRM elegíveis para recadastro: ${imoveisParaDisparar.length}`);
 
+    // 3. FLUXO DE DISPARO HUMANIZADO
     for (let i = 0; i < imoveisParaDisparar.length; i++) {
         const idImovel = imoveisParaDisparar[i];
+        
         try {
             console.log(`🚀 Executando recadastramento automático para o imóvel ID: ${idImovel}`);
+            
             await processarDisparoRecadastramento(idImovel);
 
-            recadastroIndex[idImovel] = { ultimaDataDisparo: agora.toISOString() };
+            // Grava a data atual no JSON local para acionar a trava anti-spam (passo 1)
+            recadastroIndex[idImovel] = {
+                ultimaDataDisparo: agora.toISOString()
+            };
             await fs.promises.writeFile(RECADASTRO_INDEX_PATH, JSON.stringify(recadastroIndex, null, 2));
 
-            console.log(`✅ Recadastramento do imóvel ${id_imovel} enviado com sucesso.`);
+            console.log(`✅ Recadastramento do imóvel ${idImovel} enviado com sucesso.`);
+
         } catch (erro) {
             console.error(`❌ Erro ao recadastrar imóvel ${idImovel}:`, erro.message);
         }
 
+        // Respeita a regra de envio natural do WhatsApp para evitar bloqueio da Meta
         if (i < imoveisParaDisparar.length - 1) {
             const tempoDeEsperaMs = gerarAtrasoAleatorio(4, 8);
             const minutos = (tempoDeEsperaMs / 1000 / 60).toFixed(1);
@@ -260,9 +300,9 @@ async function iniciarVarreduraRecadastramentoAutomatica() {
             await sleep(tempoDeEsperaMs);
         }
     }
+
     console.log("🏁 Varredura de recadastramento de imóveis finalizada!");
 }
-
 // Função auxiliar que centraliza a lógica de envio (separada da rota do Express)
 async function processarDisparoRecadastramento(id_imovel) {
     const imovelXML = cacheImoveis.find(i => String(i.ListingID) === String(id_imovel));
@@ -566,14 +606,33 @@ app.post('/iniciar-ciclo-recadastro', async (req, res) => {
     iniciarVarreduraRecadastramentoAutomatica().catch(err => { console.error("Erro varredura:", err.message); });
 });
 
-// --- AUTOMAÇÃO PAUSADA A PEDIDO ---
-/* 
+// --- ROTINA DE RECADASTRO COM TRAVA DE HORÁRIO COMERCIAL (EXCEÇÃO ATÉ 21H) ---
 setTimeout(() => {
+    // Roda a verificação a cada 1 hora (3600000 ms) para garantir o disparo no momento exato
     setInterval(async () => {
-        try { await iniciarVarreduraRecadastramentoAutomatica(); } catch (e) { }
-    }, 86400000); 
+        if (process.env.PAUSAR_RECADASTRO === 'true') {
+            console.log("⏸️ Varredura automática de proprietários está pausada por configuração.");
+            return;
+        }
+
+        // Converte a hora do servidor (Railway) para o horário de Brasília
+        const dataServidor = new Date();
+        const dataBrasilia = new Date(dataServidor.toLocaleString("en-US", {timeZone: "America/Sao_Paulo"}));
+        const horaBrasilia = dataBrasilia.getHours();
+
+        // 🚨 EXCEÇÃO DE TESTE: Alterado de >= 20 para >= 21 para permitir rodar até as 20:59
+        if (horaBrasilia < 9 || horaBrasilia >= 21) {
+            console.log(`⏰ [${horaBrasilia}h - BRT] Fora do horário permitido. Varredura de proprietários aguardando...`);
+            return;
+        }
+
+        try {
+            await iniciarVarreduraRecadastramentoAutomatica();
+        } catch (e) {
+            console.error("Erro no ciclo de recadastro:", e.message);
+        }
+    }, 3600000); // Roda a cada 1 hora
 }, 60000);
-*/
 
 app.post('/disparar-reengajamento', async (req, res) => {
     if (req.query.token !== "SEU_TOKEN_AQUI") return res.status(403).send("Não autorizado");
