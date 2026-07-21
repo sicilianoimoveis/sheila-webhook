@@ -800,14 +800,20 @@ app.post('/disparar-atualizacao-imovel/:id_imovel', async (req, res) => {
     const imovelXML = cacheImoveis.find(i => String(i.ListingID) === String(id_imovel));
     if (!imovelXML) return res.status(404).send("Imóvel não encontrado no XML.");
 
-    const resultadoDono = await buscarContatoProprietarioCRM(id_imovel);
+    // CORRIGIDO: Chamando o nome exato da função: buscarProprietarioNoCRM
+    const resultadoDono = await buscarProprietarioNoCRM(id_imovel);
     
-    // Se retornar um objeto de erro, mostra ele na tela do Postman para sabermos exatamente o motivo!
-    if (!resultadoDono || resultadoDono.erro) {
-        return res.status(404).send(resultadoDono?.erro || "Contato do proprietário não encontrado no CRM.");
+    if (!resultadoDono) {
+        return res.status(404).send("Contato do proprietário não encontrado no CRM (Retornou nulo).");
     }
 
     const dadosDono = resultadoDono;
+    
+    // Validação de segurança para garantir que o telefone veio limpo e com tamanho válido
+    if (!dadosDono.telefone || dadosDono.telefone.length < 10) {
+        return res.status(400).send(`Proprietário ${dadosDono.nome} encontrado, mas o telefone é inválido ou está vazio: "${dadosDono.telefone}"`);
+    }
+
     const sender = `55${dadosDono.telefone}`; 
     const endereco = obterEnderecoSeguro(imovelXML);
     const precos = obterPrecosFormatados(imovelXML);
