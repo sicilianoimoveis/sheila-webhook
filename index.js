@@ -1397,6 +1397,33 @@ app.post('/enviar-crm/:sender', async (req, res) => {
     } catch (error) { res.status(500).send("Erro ao enviar para CRM."); }
 });
 
+// --- NOVA ROTA: LIMPAR STATUS DE URGÊNCIA ---
+app.post('/remover-urgencia/:sender', async (req, res) => {
+    const { sender } = req.params;
+    
+    // Proteção com o token
+    if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) {
+        return res.status(403).send("Acesso negado.");
+    }
+
+    const lead = leadsIndex[sender];
+    
+    // Verifica se o lead existe e se realmente está com status urgente
+    if (lead && lead.statusUrgente) {
+        lead.statusUrgente = false; // Remove a urgência!
+        
+        try {
+            await fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2));
+            return res.status(200).send("Status de urgência removido com sucesso.");
+        } catch (error) {
+            console.error("Erro ao salvar remoção de urgência:", error);
+            return res.status(500).send("Erro ao salvar arquivo.");
+        }
+    }
+    
+    res.status(200).send("O lead não estava marcado como urgente.");
+});
+
 // --- MONITORAMENTO AUTOMÁTICO DE LEADS (RODA A CADA 30 MIN) ---
 async function monitorarLeads() {
     const agora = new Date();
