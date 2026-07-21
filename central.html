@@ -33,7 +33,6 @@
         .filter-group { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 8px; }
         .search-box, .filter-select { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; box-sizing: border-box; }
         
-        /* --- NOVO: ESTILO DO BOTÃO DE DISPARO EM LOTE --- */
         .btn-reengajamento {
             width: 100%;
             padding: 10px;
@@ -105,11 +104,9 @@
                 </select>
             </div>
             
-            <!-- --- NOVO: BOTÃO DE DISPARO --- -->
             <button id="btnReengajamento" class="btn-reengajamento" onclick="iniciarReengajamentoLote()">
                 🚀 Disparar Reengajamento (7 dias)
             </button>
-
         </div>
         <div id="leads-container"></div>
     </div>
@@ -121,76 +118,97 @@
     <script>
         const token = "SEU_TOKEN_AQUI"; 
         const container = document.getElementById('leads-container');
+        let listaGlobalDeLeads = []; // Memória para conseguirmos recarregar a tela
 
-        fetch(`/leads?token=${token}`)
-            .then(res => res.json())
-            .then(data => {
-                window.renderLeads = () => {
-                    const query = document.getElementById('searchInput').value.toLowerCase();
-                    const intFilter = document.getElementById('filterInteresse').value;
-                    const oriFilter = document.getElementById('filterOrigem').value;
-                    const statFilter = document.getElementById('filterStatus').value;
+        // --- FUNÇÃO PARA BUSCAR OS DADOS NO SERVIDOR ---
+        function carregarDadosIniciais() {
+            fetch(`/leads?token=${token}`)
+                .then(res => res.json())
+                .then(data => {
+                    listaGlobalDeLeads = data;
+                    renderLeads();
+                });
+        }
 
-                    container.innerHTML = '';
-                    data.filter(l => {
-                        const nome = (l.nome || "").toLowerCase();
-                        const int = l.categoria === 'captacao' ? 'captacao' : (l.purpose === 'rent' ? 'aluguel' : 'compra');
-                        const ori = (l.origem || "").toLowerCase();
-                        
-                        return (nome.includes(query) || l.sender.includes(query)) &&
-                               (intFilter === 'todos' || int === intFilter) &&
-                               (oriFilter === 'todos' || ori.includes(oriFilter)) &&
-                               (statFilter === 'todos' || (statFilter === 'enviado' ? l.enviadoParaCRM : !l.enviadoParaCRM));
-                    }).forEach(lead => {
-                        const date = new Date(lead.ultimaInteracao).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
-                        const int = lead.categoria === 'captacao' ? 'Captação' : (lead.purpose === 'rent' ? 'Aluguel' : 'Compra');
-                        
-                        const card = document.createElement('div');
-                        card.className = lead.statusUrgente ? 'card urgente' : 'card';
-                        
-                        const tagUrgente = lead.statusUrgente ? `<span class="tag tag-urgente">🚨 URGENTE</span>` : '';
+        // --- FUNÇÃO PARA DESENHAR OS CARDS NA TELA ---
+        window.renderLeads = () => {
+            const query = document.getElementById('searchInput').value.toLowerCase();
+            const intFilter = document.getElementById('filterInteresse').value;
+            const oriFilter = document.getElementById('filterOrigem').value;
+            const statFilter = document.getElementById('filterStatus').value;
 
-                        card.innerHTML = `
-                            <div onclick="abrirChat('${lead.sender}')">
-                                <div class="tag-group">
-                                    <span class="tag">${int}</span>
-                                    <span class="tag" style="background:#dbeafe">${lead.origem}</span>
-                                    ${tagUrgente}
-                                </div>
-                                <h3>${lead.nome}</h3>
-                                <p style="font-size: 11px">Tel: ${lead.sender}</p>
-                                <span class="date">Última: ${date}</span>
-                            </div>
-                            <button class="btn-crm" style="background:${lead.enviadoParaCRM ? '#28a745' : '#e67e22'}" onclick="enviarParaCRM('${lead.sender}')">
-                                ${lead.enviadoParaCRM ? '✓ Enviado CRM' : 'Enviar ao CRM'}
-                            </button>
-                        `;
-                        container.appendChild(card);
-                    });
-                };
-                ['searchInput', 'filterInteresse', 'filterOrigem', 'filterStatus'].forEach(id => document.getElementById(id).addEventListener('input', renderLeads));
-                renderLeads();
+            container.innerHTML = '';
+            listaGlobalDeLeads.filter(l => {
+                const nome = (l.nome || "").toLowerCase();
+                const int = l.categoria === 'captacao' ? 'captacao' : (l.purpose === 'rent' ? 'aluguel' : 'compra');
+                const ori = (l.origem || "").toLowerCase();
+                
+                return (nome.includes(query) || l.sender.includes(query)) &&
+                       (intFilter === 'todos' || int === intFilter) &&
+                       (oriFilter === 'todos' || ori.includes(oriFilter)) &&
+                       (statFilter === 'todos' || (statFilter === 'enviado' ? l.enviadoParaCRM : !l.enviadoParaCRM));
+            }).forEach(lead => {
+                const date = new Date(lead.ultimaInteracao).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+                const int = lead.categoria === 'captacao' ? 'Captação' : (lead.purpose === 'rent' ? 'Aluguel' : 'Compra');
+                
+                const card = document.createElement('div');
+                card.className = lead.statusUrgente ? 'card urgente' : 'card';
+                
+                const tagUrgente = lead.statusUrgente ? `<span class="tag tag-urgente">🚨 URGENTE</span>` : '';
+                
+                // Note o evento onclick repassando a variável de urgência
+                card.innerHTML = `
+                    <div onclick="abrirChat('${lead.sender}', ${!!lead.statusUrgente})">
+                        <div class="tag-group">
+                            <span class="tag">${int}</span>
+                            <span class="tag" style="background:#dbeafe">${lead.origem}</span>
+                            ${tagUrgente}
+                        </div>
+                        <h3>${lead.nome}</h3>
+                        <p style="font-size: 11px">Tel: ${lead.sender}</p>
+                        <span class="date">Última: ${date}</span>
+                    </div>
+                    <button class="btn-crm" style="background:${lead.enviadoParaCRM ? '#28a745' : '#e67e22'}" onclick="enviarParaCRM('${lead.sender}')">
+                        ${lead.enviadoParaCRM ? '✓ Enviado CRM' : 'Enviar ao CRM'}
+                    </button>
+                `;
+                container.appendChild(card);
             });
+        };
 
-        window.abrirChat = (sender) => {
+        ['searchInput', 'filterInteresse', 'filterOrigem', 'filterStatus'].forEach(id => document.getElementById(id).addEventListener('input', renderLeads));
+        
+        // Carrega a tela pela primeira vez
+        carregarDadosIniciais();
+
+        // --- FUNÇÃO PARA ABRIR O CHAT E LIMPAR URGÊNCIA ---
+        window.abrirChat = (sender, isUrgente) => {
+            // Abre o visual do chat
             document.getElementById('placeholder').style.display = 'none';
             const frame = document.getElementById('chat-frame');
             frame.style.display = 'block';
             frame.src = `/chat/${sender}?token=${token}`;
             if(window.innerWidth <= 768) document.getElementById('main-chat').classList.add('mobile-active');
+
+            // Se o card for vermelho, dispara a remoção silenciosa no servidor
+            if (isUrgente) {
+                fetch(`/remover-urgencia/${sender}?token=${token}`, { method: 'POST' })
+                    .then(() => {
+                        localStorage.removeItem(`notificado_${sender}`); // Limpa cache da notificação
+                        carregarDadosIniciais(); // Recarrega os leads para o card ficar normal
+                    })
+                    .catch(err => console.error("Erro ao limpar urgência:", err));
+            }
         };
 
         function enviarParaCRM(sender) {
             fetch(`/enviar-crm/${sender}?token=${token}`, { method: 'POST' })
-            .then(res => res.text()).then(msg => { alert(msg); location.reload(); });
+            .then(res => res.text()).then(msg => { alert(msg); carregarDadosIniciais(); });
         }
 
-        // --- NOVO: FUNÇÃO QUE COMUNICA COM SEU BACKEND PARA O DISPARO ---
         function iniciarReengajamentoLote() {
             const btn = document.getElementById('btnReengajamento');
-            
             const confirma = confirm("Atenção: Isso iniciará a varredura e o disparo do modelo 'rengajamento7' para os leads aptos. A rotina rodará em segundo plano (1 mensagem a cada 4~8 minutos). Deseja continuar?");
-            
             if (!confirma) return;
 
             btn.disabled = true;
@@ -200,7 +218,6 @@
                 .then(res => res.text())
                 .then(msg => {
                     alert("✅ Comando enviado! Acompanhe o progresso pelo terminal do seu servidor.");
-                    // Mantemos o botão desativado na tela atual para evitar duplo clique
                 })
                 .catch(erro => {
                     alert("❌ Erro de comunicação com o servidor: " + erro);
@@ -210,38 +227,40 @@
         }
     </script>
     <script>
-    document.addEventListener('DOMContentLoaded', () => {
-        if (Notification.permission !== "granted") {
-            Notification.requestPermission();
-        }
-    });
+        document.addEventListener('DOMContentLoaded', () => {
+            if (Notification.permission !== "granted") {
+                Notification.requestPermission();
+            }
+        });
 
-    let leadsConhecidos = 0;
+        let leadsConhecidos = 0;
 
-    setInterval(() => {
-        fetch(`/leads?token=${token}`)
-            .then(res => res.json())
-            .then(data => {
-                const leadsUrgentes = data.filter(l => l.statusUrgente);
-                
-                if (data.length !== leadsConhecidos) {
-                    leadsConhecidos = data.length;
-                    renderLeads(); 
-                }
-
-                leadsUrgentes.forEach(lead => {
-                    if (!localStorage.getItem(`notificado_${lead.sender}`)) {
-                        if (Notification.permission === "granted") {
-                            new Notification("🚨 Reclamação / Cobrança", {
-                                body: `O cliente ${lead.nome || lead.sender} registrou um problema!`,
-                                icon: "https://img.apre.me/M7UtVktPLcjSy00sSk8sKc7LVMhPz8-RL07NyUyzzVSztDQwtU0GAA.jpeg"
-                            });
-                            localStorage.setItem(`notificado_${lead.sender}`, 'true');
-                        }
+        // Loop de verificação a cada 30 segundos
+        setInterval(() => {
+            fetch(`/leads?token=${token}`)
+                .then(res => res.json())
+                .then(data => {
+                    const leadsUrgentes = data.filter(l => l.statusUrgente);
+                    
+                    if (data.length !== leadsConhecidos) {
+                        leadsConhecidos = data.length;
+                        listaGlobalDeLeads = data; // Atualiza a memória
+                        renderLeads(); 
                     }
+
+                    leadsUrgentes.forEach(lead => {
+                        if (!localStorage.getItem(`notificado_${lead.sender}`)) {
+                            if (Notification.permission === "granted") {
+                                new Notification("🚨 Reclamação / Cobrança", {
+                                    body: `O cliente ${lead.nome || lead.sender} registrou um problema!`,
+                                    icon: "https://img.apre.me/M7UtVktPLcjSy00sSk8sKc7LVMhPz8-RL07NyUyzzVSztDQwtU0GAA.jpeg"
+                                });
+                                localStorage.setItem(`notificado_${lead.sender}`, 'true');
+                            }
+                        }
+                    });
                 });
-            });
-    }, 30000); 
-</script>
+        }, 30000); 
+    </script>
 </body>
 </html>
