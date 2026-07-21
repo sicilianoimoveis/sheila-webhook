@@ -138,61 +138,62 @@ const obterPrecosFormatados = (imovel) => {
 // --- INTEGRAÇÃO SIGAFY E CRM (SEGURO FIANÇA) ---
 // ==========================================
 
-async function buscarContatoProprietarioCRM(imovelId) {
+async function buscarProprietarioNoCRM(buildingId) {
     try {
-        const config = { headers: { "Authorization": `Bearer ${process.env.CRM_API_TOKEN}`, "Accept": "application/json" } };
+        const config = { 
+            headers: { 
+                "Authorization": `Bearer ${process.env.CRM_API_TOKEN}`, 
+                "Accept": "application/json" 
+            } 
+        };
         
-        // 1. Busca o imóvel
+        // 1. PRIMEIRA CHAMADA: Busca o imóvel para pegar o ID do dono
         const resImovel = await axios.get("https://api.apresenta.me/buildings", {
             ...config,
-            params: { "include[owners]": "*", "filter[id]": imovelId }
+            params: {
+                "include[owners]": "*",
+                "filter[id]": buildingId
+            }
         });
         
         const ownerId = resImovel.data?.data?.[0]?.owners?.[0]?.id; 
+        
         if (!ownerId) {
-            console.log(`LOG_DEBUG: Imóvel ${imovelId} não possui ownerId.`);
-            return { erro: `Imóvel ${imovelId} não possui ownerId vinculado no CRM.` };
+            console.log(`LOG_DEBUG: Imóvel ${buildingId} não possui proprietário no CRM.`);
+            return null;
         }
 
-        // 2. Busca os dados de contato do proprietário
+        // 2. SEGUNDA CHAMADA: Busca os dados do proprietário
         const resOwner = await axios.get("https://api.apresenta.me/persons", {
             ...config,
-            params: { "include[contacts]": "*", "filter[id]": ownerId }
+            params: {
+                "include[contacts]": "*",
+                "filter[id]": ownerId
+            }
         });
         
         const dono = resOwner.data?.data?.[0];
-        if (!dono) {
-            console.log(`LOG_DEBUG: Pessoa ID ${ownerId} não encontrada.`);
-            return { erro: `Pessoa ID ${ownerId} não encontrada no CRM.` };
-        }
+        if (!dono) return null;
 
-        // 3. Extração blindada do cellphone com base no JSON que você printou
-        let telefoneBruto = "";
-        if (dono.contacts && Array.isArray(dono.contacts) && dono.contacts.length > 0) {
-            // Procura o contato que tem cellphone preenchido
-            const contatoValido = dono.contacts.find(c => c.cellphone);
-            telefoneBruto = contatoValido ? contatoValido.cellphone : (dono.contacts[0]?.cellphone || "");
-        } else {
-            telefoneBruto = dono.cellphone || "";
-        }
-
-        const telefoneLimpo = String(telefoneBruto).replace(/\D/g, '');
-
-        if (!telefoneLimpo || telefoneLimpo.length < 10) {
-            console.log(`LOG_DEBUG: Telefone inválido para ${dono.name}: "${telefoneBruto}"`);
-            return { erro: `Proprietário ${dono.name} não possui um celular válido cadastrado (Valor lido: ${telefoneBruto}).` };
+        let dataFormatada = "01/01/1980";
+        if (dono.birth_date) {
+            const partes = dono.birth_date.split('-');
+            if (partes.length === 3) dataFormatada = `${partes[2]}/${partes[1]}/${partes[0]}`;
         }
 
         return {
-            idDono: ownerId,
+            tipoPessoa: dono.juridical ? "juridica" : "fisica",
+            documento: dono.taxid || "000.000.000-00", 
             nome: dono.name || "Proprietário",
-            telefone: telefoneLimpo
+            dataNascimento: dataFormatada,
+            estadoCivil: dono.marital || "Solteiro(a)"
         };
     } catch (error) {
-        console.error(`Erro crítico no CRM:`, error.response?.data || error.message);
-        return { erro: `Erro na API do CRM: ${error.message}` };
+        console.error("Erro ao buscar proprietário no CRM:", error.message);
+        return null;
     }
 }
+
 async function gerarTokenSigafy() {
     try {
         const url = "https://projetos.sigafy.com.br/api/v1/quote/bail-auth";
