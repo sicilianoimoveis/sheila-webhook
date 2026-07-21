@@ -893,13 +893,18 @@ app.post('/webhook', async (req, res) => {
         }
     }
 
-    // Se não for nem texto nem áudio, ou se estiver vazio, encerra a requisição
+   // Se não for nem texto nem áudio, ou se estiver vazio, encerra a requisição
     if (!textoCliente) return res.sendStatus(200);
 
-   const conversa = obterHistorico(sender);
+    const conversa = obterHistorico(sender);
     const referral = msgData?.referral?.source_url;
 
-   // --- CORREÇÃO DE CONTEXTO: CORTA O FUNIL SE FOR PROPRIETÁRIO ---
+    // RESTAURADO: O bloco try, a URL do Gemini e a injeção da mensagem do cliente!
+    try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`;
+        conversa.push({ "role": "user", "parts": [{ "text": textoCliente }] });
+
+        // --- CORREÇÃO DE CONTEXTO: CORTA O FUNIL SE FOR PROPRIETÁRIO ---
         let promptDinamico = process.env.SYSTEM_PROMPT || "Você é a Sheila, corretora da Siciliano Imóveis.";
         
         if (leadsIndex[sender]?.isProprietario) {
@@ -1477,19 +1482,20 @@ app.post('/webhook-leads4sales', async (req, res) => {
         const data = req.body;
         console.log("LOG_DEBUG: Lead recebido do Leads4Sales:", JSON.stringify(data, null, 2));
 
-        // 1. VALIDAÇÃO OBRIGATÓRIA: O manual exige clientListingId
+        // 1. VALIDAÇÃO OBRIGATÓRIA
         if (!data.clientListingId) {
-            console.log("LOG_DEBUG: Lead recebido sem clientListingId. Retornando erro 400 conforme manual.");
-            return res.status(400).send("clientListingId é obrigatório");
+            console.log("LOG_DEBUG: Lead recebido sem clientListingId. Retornando erro 400.");
+            // CORREÇÃO: Responder obrigatoriamente em formato JSON
+            return res.status(400).json({ error: "clientListingId é obrigatório" });
         }
 
-        // 2. Resposta rápida para o protocolo (Status 2xx indica sucesso)[cite: 8]
-        res.status(200).send('Lead recebido');
+        // 2. CORREÇÃO PRINCIPAL DO ERRO: Responder com JSON válido para a plataforma deles!
+        res.status(200).json({ status: "success", message: "Lead recebido com sucesso" });
 
-        // 3. Extração dos dados baseada no contrato JSON[cite: 8]
+        // 3. Extração dos dados
         const nome = data.name || 'Cliente';
-        const celular = data.phoneNumber ? data.phoneNumber.replace(/\D/g, '') : "";
-        const referencia = String(data.clientListingId);
+        let celular = data.phoneNumber ? data.phoneNumber.replace(/\D/g, '') : "";
+        const referenciaOriginal = String(data.clientListingId);
         const mensagemPortal = data.message || 'Gostaria de informações sobre este imóvel.';
 
         if (!celular) {
@@ -1497,18 +1503,31 @@ app.post('/webhook-leads4sales', async (req, res) => {
             return;
         }
 
-        // 4. Inteligência de Link
-        const imovel = cacheImoveis.find(i => String(i.ListingID) === referencia);
-        const linkImovel = imovel ? imovel.DetailViewUrl : `https://sicilianoimoveis.com.br/imovel/${referencia}`;
+        // CORREÇÃO: Forçar o código do Brasil (55) caso o Leads4Sales mande apenas "19991367388"
+        if (!celular.startsWith("55")) {
+            celular = `55${celular}`;
+        }
 
-        // 5. Atualiza o cadastro (usando a origem 'lead4sales' que temos no seu ORIGENS)
-        atualizarIndiceLeads(celular, nome, 'lead4sales', false, referencia);
+        // 4. Inteligência de Link e Tratamento do ID composto (Ex: 5099_3307)
+        let imovel = cacheImoveis.find(i => String(i.ListingID) === referenciaOriginal);
+        
+        // Se não achou pelo ID completo e ele tiver um "_" (ex: 5099_3307), tenta achar só pela segunda parte (3307)
+        if (!imovel && referenciaOriginal.includes('_')) {
+            const idLimpo = referenciaOriginal.split('_')[1]; 
+            imovel = cacheImoveis.find(i => String(i.ListingID) === idLimpo);
+        }
+
+        const idDefinitivo = imovel ? imovel.ListingID : referenciaOriginal;
+        const linkImovel = imovel ? imovel.DetailViewUrl : `https://sicilianoimoveis.com.br/imovel/${idDefinitivo}`;
+
+        // 5. Atualiza o cadastro
+        atualizarIndiceLeads(celular, nome, 'lead4sales', false, idDefinitivo);
 
         let conversa = obterHistorico(celular);
         
         // 6. Abordagem Ativa (se for lead novo)
         if (conversa.length === 0) {
-            let contextoOculto = `DADOS TÉCNICOS PARA CONSULTA INTERNA DA SHEILA: Novo lead vindo do Leads4Sales.\nNome do cliente: ${nome}\nMensagem: "${mensagemPortal}"\nID do Imóvel: ${referencia}\n`;
+            let contextoOculto = `DADOS TÉCNICOS PARA CONSULTA INTERNA DA SHEILA: Novo lead vindo do Leads4Sales.\nNome do cliente: ${nome}\nMensagem: "${mensagemPortal}"\nID do Imóvel: ${idDefinitivo}\n`;
             
             if (imovel) {
                 const precos = obterPrecosFormatados(imovel);
@@ -1521,15 +1540,15 @@ app.post('/webhook-leads4sales', async (req, res) => {
             
             salvarHistorico(celular, conversa);
 
-            // Dispara o template
+            // Dispara o template via Meta
             await enviarTemplateLead(celular, nome, linkImovel);
             
-            console.log(`LOG_DEBUG: Novo Lead Leads4Sales processado! Nome: ${nome} | Imóvel: ${referencia}`);
+            console.log(`LOG_DEBUG: Novo Lead Leads4Sales processado! Nome: ${nome} | Celular: ${celular} | Imóvel: ${idDefinitivo}`);
         }
     } catch (error) {
         console.error("ERRO ao processar webhook do Leads4Sales:", error.message);
-        // Em caso de falha severa, respondemos com erro para acionar a retentativa automática deles[cite: 8]
-        if (!res.headersSent) res.status(500).send("Erro interno");
+        // CORREÇÃO: Falhas críticas internas também devem retornar JSON
+        if (!res.headersSent) res.status(500).json({ error: "Erro interno no servidor" });
     }
 });
 
