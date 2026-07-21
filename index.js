@@ -147,7 +147,7 @@ async function buscarContatoProprietarioCRM(buildingId) {
             } 
         };
         
-        // 1. PRIMEIRA CHAMADA: Busca o imóvel para pegar o ID do dono
+        console.log(`LOG_DEBUG: Buscando imóvel ${buildingId} no CRM...`);
         const resImovel = await axios.get("https://api.apresenta.me/buildings", {
             ...config,
             params: {
@@ -156,28 +156,30 @@ async function buscarContatoProprietarioCRM(buildingId) {
             }
         });
         
+        console.log(`LOG_DEBUG: Resposta bruta do imóvel:`, JSON.stringify(resImovel.data?.data?.[0] || {}));
+
         const ownerId = resImovel.data?.data?.[0]?.owners?.[0]?.id; 
         if (!ownerId) {
-            console.log(`LOG_DEBUG: Imóvel ${buildingId} não possui ownerId vinculado.`);
+            console.log(`❌ LOG_DEBUG: Imóvel ${buildingId} NÃO possui ownerId vinculado no CRM.`);
             return null;
         }
 
-        // 2. Busca os dados de contato do proprietário na tabela persons
+        console.log(`LOG_DEBUG: Owner ID encontrado: ${ownerId}. Buscando dados da pessoa...`);
         const resOwner = await axios.get("https://api.apresenta.me/persons", {
             ...config,
             params: { "include[contacts]": "*", "filter[id]": ownerId }
         });
         
+        console.log(`LOG_DEBUG: Resposta bruta da pessoa:`, JSON.stringify(resOwner.data?.data?.[0] || {}));
+
         const dono = resOwner.data?.data?.[0];
         if (!dono) {
-            console.log(`LOG_DEBUG: Pessoa ID ${ownerId} não encontrada no CRM.`);
+            console.log(`❌ LOG_DEBUG: Pessoa ID ${ownerId} não retornou dados no CRM.`);
             return null;
         }
 
-        // 3. Extração segura do telefone (checando o formato mapeado na sua imagem)
         let telefoneBruto = "";
         if (dono.contacts && Array.isArray(dono.contacts) && dono.contacts.length > 0) {
-            // Procura primeiro pelo campo cellphone ou por qualquer valor válido nos contatos
             const contatoCel = dono.contacts.find(c => c.cellphone || c.value);
             telefoneBruto = contatoCel?.cellphone || contatoCel?.value || "";
         }
@@ -185,7 +187,7 @@ async function buscarContatoProprietarioCRM(buildingId) {
         const telefoneLimpo = telefoneBruto.replace(/\D/g, '');
 
         if (!telefoneLimpo || telefoneLimpo.length < 10) {
-            console.log(`LOG_DEBUG: Proprietário ${dono.name} não possui um celular válido cadastrado. Valor encontrado: "${telefoneBruto}"`);
+            console.log(`❌ LOG_DEBUG: Proprietário ${dono.name} não possui celular válido. Valor lido: "${telefoneBruto}"`);
             return null;
         }
 
@@ -195,7 +197,7 @@ async function buscarContatoProprietarioCRM(buildingId) {
             telefone: telefoneLimpo
         };
     } catch (error) {
-        console.error(`Erro ao buscar contato do proprietário do imóvel ${buildingId}:`, error.response?.data || error.message);
+        console.error(`❌ Erro crítico na API do CRM para o imóvel ${buildingId}:`, error.response?.status, error.response?.data || error.message);
         return null;
     }
 }
@@ -742,7 +744,7 @@ app.get('/chat/:sender', (req, res) => {
 
     res.send(html);
 });
-// Adicione isso nas suas rotas do Express
+
 // Adicione isso nas suas rotas do Express
 app.post('/disparar-atualizacao-imovel/:imovelId', async (req, res) => {
     if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) return res.status(403).send("Acesso negado.");
