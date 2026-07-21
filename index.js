@@ -974,24 +974,31 @@ app.post('/webhook', async (req, res) => {
    if (process.env.SHEILA_PAUSADA === 'true') {
         return res.sendStatus(200); 
     }    
-    
+
     const msgData = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
     if (!msgData) return res.sendStatus(200);
-    
+
     const sender = msgData.from;
     const nomeMeta = req.body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile?.name;
+
+    // --- LOG DE DIAGNÓSTICO: MOSTRA EXATAMENTE O ESTADO DO LEAD NO TERMINAL ---
+    console.log(`\n========================================`);
+    console.log(`🔍 [WEBHOOK] Mensagem recebida de: ${sender}`);
+    console.log(`📊 Estado salvo no leadsIndex para este número:`, JSON.stringify(leadsIndex[sender] || "NENHUM ESTADO ENCONTRADO"));
+    console.log(`========================================\n`);
+
     const nomeAtual = leadsIndex[sender]?.nome;
     const nomeParaSalvar = (nomeAtual && nomeAtual !== "Lead Sem Nome") ? nomeAtual : (nomeMeta || "Cliente");
 
     atualizarIndiceLeads(sender, nomeParaSalvar, "WhatsApp");
 
-    // NOVO: Processamento central de Mensagens (Texto ou Áudio)
+    // Processamento de Texto ou Áudio
     let textoCliente = msgData.text?.body;
-    
+
     if (msgData.type === 'audio' && msgData.audio?.id) {
         console.log("LOG_DEBUG: Áudio recebido, iniciando transcrição...");
         const transcricao = await transcreverAudio(msgData.audio.id);
-        
+
         if (transcricao) {
             textoCliente = transcricao;
             console.log(`LOG_DEBUG: Áudio transcrito: "${transcricao}"`);
@@ -1001,18 +1008,16 @@ app.post('/webhook', async (req, res) => {
         }
     }
 
-   // Se não for nem texto nem áudio, ou se estiver vazio, encerra a requisição
     if (!textoCliente) return res.sendStatus(200);
 
     const conversa = obterHistorico(sender);
     const referral = msgData?.referral?.source_url;
 
-    // RESTAURADO: O bloco try, a URL do Gemini e a injeção da mensagem do cliente!
     try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`;
         conversa.push({ "role": "user", "parts": [{ "text": textoCliente }] });
 
-       // --- CORREÇÃO DE CONTEXTO: INJEÇÃO DINÂMICA NO SYSTEM PROMPT ---
+        // --- PROMPT DINÂMICO BLINDADO COM LOGS DE CONFIRMAÇÃO ---
         let promptDinamico = process.env.SYSTEM_PROMPT || "Você é a Sheila, corretora da Siciliano Imóveis.";
 
         if (leadsIndex[sender]?.isProprietario && leadsIndex[sender]?.imovelAtualizando) {
@@ -1020,17 +1025,22 @@ app.post('/webhook', async (req, res) => {
             const imovelXMLProp = cacheImoveis.find(i => String(i.ListingID) === String(idImovelProp));
             const precosProp = imovelXMLProp ? obterPrecosFormatados(imovelXMLProp) : { pVenda: 0, pLocacao: 0 };
             const valorNumProp = precosProp.pVenda > 0 ? precosProp.pVenda : precosProp.pLocacao;
-            const tipoNegocioProp = precosProp.pVenda > 0 ? "sale" : "rent";
             const tipoNegocioTxt = precosProp.pVenda > 0 ? "venda" : "locação";
+            const tipoNegocioCRM = precosProp.pVenda > 0 ? "sale" : "rent";
 
-            promptDinamico += `\n\n[DIRETRIZ DE EXCEÇÃO TEMPORÁRIA]: O cliente atual é o PROPRIETÁRIO do imóvel ID ${idImovelProp}. O ID EXATO DESTE IMÓVEL É ${idImovelProp}. O imóvel está cadastrado para ${tipoNegocioTxt} (tipo_negocio: '${tipoNegocioProp}') pelo valor atual de R$${valorNumProp}. 
+            console.log(`🚨 [SHEILA ATIVOU MODO PROPRIETÁRIO] Imóvel ID: ${idImovelProp} | Negócio: ${tipoNegocioTxt}`);
 
-REGRAS ESTRITAS:
-1. NUNCA pergunte o endereço, a referência ou o código do imóvel ao proprietário. Você JÁ TEM esses dados salvos no sistema.
-2. Seu único objetivo agora é confirmar se o imóvel continua disponível e qual é o valor atual.
-3. Assim que o proprietário confirmar a disponibilidade, chame IMEDIATAMENTE a função 'atualizar_status_imovel_crm' utilizando obrigatoriamente o ID ${idImovelProp}.`;
+            promptDinamico += `\n\n[DIRETRIZ DE EXCEÇÃO TEMPORÁRIA OBRIGATÓRIA]: O cliente atual (número ${sender}) é o PROPRIETÁRIO do imóvel ID ${idImovelProp}. 
+            O ID EXATO DESTE IMÓVEL É ${idImovelProp}. 
+            O imóvel está cadastrado para ${tipoNegocioTxt} (tipo_negocio: '${tipoNegocioCRM}') pelo valor atual de R$${valorNumProp}. 
+            
+            REGRAS ESTRITAS PARA ESTE ATENDIMENTO:
+            1. NUNCA pergunte o endereço, a referência ou o código do imóvel ao proprietário. Você JÁ TEM esses dados salvos no sistema.
+            2. Seu único objetivo agora é confirmar se o imóvel continua disponível e qual é o valor atual.
+            3. Assim que o proprietário confirmar a disponibilidade, chame IMEDIATAMENTE a função 'atualizar_status_imovel_crm' passando obrigatoriamente o ID ${idImovelProp}.`;
+        } else {
+            console.log(`ℹ️ [MODO LEAD NORMAL] O número ${sender} não tem flag de proprietário ativa.`);
         }
-
         const payloadInicial = {
             "systemInstruction": { "parts": [{ "text": promptDinamico }] },
             "contents": conversa,
