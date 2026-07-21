@@ -182,15 +182,8 @@ async function buscarProprietarioNoCRM(buildingId) {
             if (partes.length === 3) dataFormatada = `${partes[2]}/${partes[1]}/${partes[0]}`;
         }
 
-        // 4. Extração segura do telefone (pegando o cellphone do array contacts)
-        let telefoneBruto = "";
-        if (dono.contacts && Array.isArray(dono.contacts) && dono.contacts.length > 0) {
-            const contatoCel = dono.contacts.find(c => c.cellphone);
-            telefoneBruto = contatoCel ? contatoCel.cellphone : (dono.contacts[0]?.cellphone || "");
-        } else {
-            telefoneBruto = dono.cellphone || "";
-        }
-        
+        // 4. Extração exata baseada no mapeamento do painel: data[0].contacts[0].cellphone
+        const telefoneBruto = resOwner.data?.data?.[0]?.contacts?.[0]?.cellphone || "";
         const telefoneLimpo = String(telefoneBruto).replace(/\D/g, '');
 
         return {
@@ -199,14 +192,13 @@ async function buscarProprietarioNoCRM(buildingId) {
             nome: dono.name || "Proprietário",
             dataNascimento: dataFormatada,
             estadoCivil: dono.marital || "Solteiro(a)",
-            telefone: telefoneLimpo // <-- Adicionado para a rota de recadastramento usar!
+            telefone: telefoneLimpo 
         };
     } catch (error) {
         console.error("Erro ao buscar proprietário no CRM:", error.message);
         return null;
     }
 }
-
 async function gerarTokenSigafy() {
     try {
         const url = "https://projetos.sigafy.com.br/api/v1/quote/bail-auth";
