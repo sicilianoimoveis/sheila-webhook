@@ -142,7 +142,7 @@ async function buscarContatoProprietarioCRM(imovelId) {
     try {
         const config = { headers: { "Authorization": `Bearer ${process.env.CRM_API_TOKEN}`, "Accept": "application/json" } };
         
-        // 1. Busca o imóvel para pegar o ID do dono
+        // 1. Busca o imóvel
         const resImovel = await axios.get("https://api.apresenta.me/buildings", {
             ...config,
             params: { "include[owners]": "*", "filter[id]": imovelId }
@@ -150,8 +150,8 @@ async function buscarContatoProprietarioCRM(imovelId) {
         
         const ownerId = resImovel.data?.data?.[0]?.owners?.[0]?.id; 
         if (!ownerId) {
-            console.log(`LOG_DEBUG: Imóvel ${imovelId} não possui ownerId vinculado.`);
-            return null;
+            console.log(`LOG_DEBUG: Imóvel ${imovelId} não possui ownerId.`);
+            return { erro: `Imóvel ${imovelId} não possui ownerId vinculado no CRM.` };
         }
 
         // 2. Busca os dados de contato do proprietário
@@ -161,27 +161,36 @@ async function buscarContatoProprietarioCRM(imovelId) {
         });
         
         const dono = resOwner.data?.data?.[0];
-        if (!dono || !dono.contacts) {
-            console.log(`LOG_DEBUG: Pessoa ID ${ownerId} não encontrada ou sem contatos.`);
-            return null;
+        if (!dono) {
+            console.log(`LOG_DEBUG: Pessoa ID ${ownerId} não encontrada.`);
+            return { erro: `Pessoa ID ${ownerId} não encontrada no CRM.` };
         }
 
-        // 3. Busca o celular usando corretamente a propriedade 'cellphone' vista no seu print
-        const contatoCelular = dono.contacts.find(c => c.cellphone && c.cellphone.replace(/\D/g, '').length >= 10);
-        
-        if (!contatoCelular) {
-            console.log(`LOG_DEBUG: Nenhum cellphone válido encontrado nos contatos do proprietário ${dono.name}.`);
-            return null;
+        // 3. Extração blindada do cellphone com base no JSON que você printou
+        let telefoneBruto = "";
+        if (dono.contacts && Array.isArray(dono.contacts) && dono.contacts.length > 0) {
+            // Procura o contato que tem cellphone preenchido
+            const contatoValido = dono.contacts.find(c => c.cellphone);
+            telefoneBruto = contatoValido ? contatoValido.cellphone : (dono.contacts[0]?.cellphone || "");
+        } else {
+            telefoneBruto = dono.cellphone || "";
+        }
+
+        const telefoneLimpo = String(telefoneBruto).replace(/\D/g, '');
+
+        if (!telefoneLimpo || telefoneLimpo.length < 10) {
+            console.log(`LOG_DEBUG: Telefone inválido para ${dono.name}: "${telefoneBruto}"`);
+            return { erro: `Proprietário ${dono.name} não possui um celular válido cadastrado (Valor lido: ${telefoneBruto}).` };
         }
 
         return {
             idDono: ownerId,
             nome: dono.name || "Proprietário",
-            telefone: contatoCelular.cellphone.replace(/\D/g, '') // Remove formatação e deixa só números
+            telefone: telefoneLimpo
         };
     } catch (error) {
-        console.error(`Erro ao buscar contato do proprietário do imóvel ${imovelId}:`, error.message);
-        return null;
+        console.error(`Erro crítico no CRM:`, error.response?.data || error.message);
+        return { erro: `Erro na API do CRM: ${error.message}` };
     }
 }
 async function gerarTokenSigafy() {
@@ -785,17 +794,21 @@ app.post('/disparar-atualizacao-imovel/:imovelId', async (req, res) => {
     const imovelXML = cacheImoveis.find(i => String(i.ListingID) === String(imovelId));
     if (!imovelXML) return res.status(404).send("Imóvel não encontrado no XML.");
 
-    const dadosDono = await buscarContatoProprietarioCRM(imovelId);
-    if (!dadosDono) return res.status(404).send("Contato do proprietário não encontrado no CRM.");
+    const resultadoDono = await buscarContatoProprietarioCRM(imovelId);
+    
+    // Se retornar um objeto de erro, mostra ele na tela do Postman para sabermos exatamente o motivo!
+    if (!resultadoDono || resultadoDono.erro) {
+        return res.status(404).send(resultadoDono?.erro || "Contato do proprietário não encontrado no CRM.");
+    }
 
+    const dadosDono = resultadoDono;
     const sender = `55${dadosDono.telefone}`; 
     const endereco = obterEnderecoSeguro(imovelXML);
     const precos = obterPrecosFormatados(imovelXML);
     
-    // Identifica valores e tipos para o CRM e para o Texto
     const valorNumerico = precos.pVenda > 0 ? precos.pVenda : precos.pLocacao;
     const tipoNegocioTexto = precos.pVenda > 0 ? "venda" : "locação";
-    const tipoNegocioCRM = precos.pVenda > 0 ? "sale" : "rent"; // Chave para a API
+    const tipoNegocioCRM = precos.pVenda > 0 ? "sale" : "rent";
 
     if (!leadsIndex[sender]) leadsIndex[sender] = {};
     leadsIndex[sender].isProprietario = true;
@@ -803,14 +816,11 @@ app.post('/disparar-atualizacao-imovel/:imovelId', async (req, res) => {
 
     let conversa = obterHistorico(sender);
     
-    // 1. Dispara o template com as 3 variáveis via Meta API
     await enviarTemplateAtualizacaoImovel(sender, dadosDono.nome, endereco, tipoNegocioTexto);
     
-    // 2. Salva o texto EXATO do template no histórico
     const textoTemplateEnviado = `Olá ${dadosDono.nome}!\nEu sou a Sheila da Siciliano Imóveis.\nEstamos entrando em contato para atualizar o seu imóvel em ${endereco}.\nContinua disponível para ${tipoNegocioTexto}?`;
     conversa.push({ "role": "model", "parts": [{ "text": textoTemplateEnviado }] });
     
-    // 3. Adiciona o contexto oculto de recadastramento com o 'amount' e 'purpose' corretos
     const contextoOculto = `INFORMAÇÃO INTERNA: O cliente a seguir é o PROPRIETÁRIO do imóvel ID ${imovelId}. O imóvel está cadastrado para ${tipoNegocioTexto} (tipo_negocio: '${tipoNegocioCRM}') pelo valor atual de R$${valorNumerico}. Você acabou de disparar a mensagem acima. Aja naturalmente a partir da resposta dele. Seu objetivo é descobrir se o imóvel continua disponível e confirmar qual é o valor atual (amount) para atualização sistêmica.`;
     conversa.push({ "role": "user", "parts": [{ "text": contextoOculto }] });
     
@@ -818,7 +828,6 @@ app.post('/disparar-atualizacao-imovel/:imovelId', async (req, res) => {
 
     res.status(200).send(`Template de atualização disparado para ${dadosDono.nome} (${sender})`);
 });
-
 app.post('/disparar-reengajamento', async (req, res) => {
     const tokenFornecido = req.query.token;
     
