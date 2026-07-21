@@ -937,9 +937,14 @@ app.post('/iniciar-ciclo-recadastro', async (req, res) => {
     });
 });
 
-// Agendamento diário (Roda a cada 24 horas, iniciando 1 minuto após ligar o servidor)
+// --- ROTINA DE RECADASTRO PAUSÁVEL VIA VARIÁVEL DE AMBIENTE ---
 setTimeout(() => {
     setInterval(async () => {
+        // Se a variável PAUSAR_RECADASTRO estiver como 'true' no Railway, o ciclo não roda
+        if (process.env.PAUSAR_RECADASTRO === 'true') {
+            console.log("⏸️ Varredura automática de proprietários está pausada por configuração.");
+            return;
+        }
         try {
             await iniciarVarreduraRecadastramentoAutomatica();
         } catch (e) {
