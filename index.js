@@ -138,7 +138,7 @@ const obterPrecosFormatados = (imovel) => {
 // --- INTEGRAÇÃO SIGAFY E CRM (SEGURO FIANÇA) ---
 // ==========================================
 
-async function buscarProprietarioNoCRM(buildingId) {
+async function buscarContatoProprietarioCRM(buildingId) {
     try {
         const config = { 
             headers: { 
@@ -157,43 +157,48 @@ async function buscarProprietarioNoCRM(buildingId) {
         });
         
         const ownerId = resImovel.data?.data?.[0]?.owners?.[0]?.id; 
-        
         if (!ownerId) {
-            console.log(`LOG_DEBUG: Imóvel ${buildingId} não possui proprietário no CRM.`);
+            console.log(`LOG_DEBUG: Imóvel ${buildingId} não possui ownerId vinculado.`);
             return null;
         }
 
-        // 2. SEGUNDA CHAMADA: Busca os dados do proprietário
+        // 2. Busca os dados de contato do proprietário na tabela persons
         const resOwner = await axios.get("https://api.apresenta.me/persons", {
             ...config,
-            params: {
-                "include[contacts]": "*",
-                "filter[id]": ownerId
-            }
+            params: { "include[contacts]": "*", "filter[id]": ownerId }
         });
         
         const dono = resOwner.data?.data?.[0];
-        if (!dono) return null;
+        if (!dono) {
+            console.log(`LOG_DEBUG: Pessoa ID ${ownerId} não encontrada no CRM.`);
+            return null;
+        }
 
-        let dataFormatada = "01/01/1980";
-        if (dono.birth_date) {
-            const partes = dono.birth_date.split('-');
-            if (partes.length === 3) dataFormatada = `${partes[2]}/${partes[1]}/${partes[0]}`;
+        // 3. Extração segura do telefone (checando o formato mapeado na sua imagem)
+        let telefoneBruto = "";
+        if (dono.contacts && Array.isArray(dono.contacts) && dono.contacts.length > 0) {
+            // Procura primeiro pelo campo cellphone ou por qualquer valor válido nos contatos
+            const contatoCel = dono.contacts.find(c => c.cellphone || c.value);
+            telefoneBruto = contatoCel?.cellphone || contatoCel?.value || "";
+        }
+
+        const telefoneLimpo = telefoneBruto.replace(/\D/g, '');
+
+        if (!telefoneLimpo || telefoneLimpo.length < 10) {
+            console.log(`LOG_DEBUG: Proprietário ${dono.name} não possui um celular válido cadastrado. Valor encontrado: "${telefoneBruto}"`);
+            return null;
         }
 
         return {
-            tipoPessoa: dono.juridical ? "juridica" : "fisica",
-            documento: dono.taxid || "000.000.000-00", 
+            idDono: ownerId,
             nome: dono.name || "Proprietário",
-            dataNascimento: dataFormatada,
-            estadoCivil: dono.marital || "Solteiro(a)"
+            telefone: telefoneLimpo
         };
     } catch (error) {
-        console.error("Erro ao buscar proprietário no CRM:", error.message);
+        console.error(`Erro ao buscar contato do proprietário do imóvel ${buildingId}:`, error.response?.data || error.message);
         return null;
     }
 }
-
 async function gerarTokenSigafy() {
     try {
         const url = "https://projetos.sigafy.com.br/api/v1/quote/bail-auth";
