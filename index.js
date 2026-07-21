@@ -199,6 +199,130 @@ async function buscarProprietarioNoCRM(id_imovel) {
         return null;
     }
 }
+
+// --- CONTROLE DE HISTÓRICO DE RECADASTRAMENTO DE IMÓVEIS ---
+const RECADASTRO_INDEX_PATH = '/app/dados/recadastro_imoveis.json';
+let recadastroIndex = {};
+
+// Carrega o índice de recadastro junto com os outros arquivos na inicialização
+const carregarRecadastros = () => {
+    try {
+        if (fs.existsSync(RECADASTRO_INDEX_PATH)) {
+            recadastroIndex = JSON.parse(fs.readFileSync(RECADASTRO_INDEX_PATH, 'utf8'));
+        }
+    } catch (e) {
+        recadastroIndex = {};
+    }
+};
+carregarRecadastros();
+
+// --- FUNÇÃO DE DISPARO AUTOMÁTICO EM LOTE (A cada 30 a 60 dias por imóvel) ---
+async function iniciarVarreduraRecadastramentoAutomatica() {
+    console.log("🔍 Iniciando varredura automática de recadastramento de imóveis...");
+    const agora = new Date();
+    let imoveisParaDisparar = [];
+
+    for (const imovel of cacheImoveis) {
+        const idImovel = String(imovel.ListingID);
+        const ultimoDisparo = recadastroIndex[idImovel]?.ultimaDataDisparo;
+
+        let deveDisparar = false;
+
+        if (!ultimoDisparo) {
+            // Se nunca foi disparado, entra na fila
+            deveDisparar = true;
+        } else {
+            // Calcula quantos dias se passaram desde o último contato
+            const diasPassados = (agora - new Date(ultimoDisparo)) / (1000 * 60 * 60 * 24);
+            
+            // Intervalo configurado entre 30 e 60 dias (ex: definimos 45 dias como média segura)
+            if (diasPassados >= 45) {
+                deveDisparar = true;
+            }
+        }
+
+        if (deveDisparar) {
+            imoveisParaDisparar.push(idImovel);
+        }
+    }
+
+    console.log(`📋 Total de imóveis elegíveis para recadastramento hoje: ${imoveisParaDisparar.length}`);
+
+    // Dispara respeitando o intervalo de segurança de 4 a 8 minutos entre cada um
+    for (let i = 0; i < imoveisParaDisparar.length; i++) {
+        const idImovel = imoveisParaDisparar[i];
+        
+        try {
+            console.log(`🚀 Executando recadastramento automático para o imóvel ID: ${idImovel}`);
+            
+            // Dispara a mesma lógica da sua rota POST interna
+            await processarDisparoRecadastramento(idImovel);
+
+            // Atualiza a data do último disparo no arquivo JSON
+            recadastroIndex[idImovel] = {
+                ultimaDataDisparo: agora.toISOString()
+            };
+            await fs.promises.writeFile(RECADASTRO_INDEX_PATH, JSON.stringify(recadastroIndex, null, 2));
+
+            console.log(`✅ Recadastramento do imóvel ${id_imovel} enviado com sucesso.`);
+
+        } catch (erro) {
+            console.error(`❌ Erro ao recadastrar imóvel ${idImovel}:`, erro.message);
+        }
+
+        // Intervalo de 4 a 8 minutos entre as mensagens (Proteção anti-spam da Meta)
+        if (i < imoveisParaDisparar.length - 1) {
+            const tempoDeEsperaMs = gerarAtrasoAleatorio(4, 8);
+            const minutos = (tempoDeEsperaMs / 1000 / 60).toFixed(1);
+            console.log(`⏳ Aguardando ${minutos} minutos antes de disparar para o próximo proprietário...`);
+            await sleep(tempoDeEsperaMs);
+        }
+    }
+
+    console.log("🏁 Varredura de recadastramento de imóveis finalizada!");
+}
+
+// Função auxiliar que centraliza a lógica de envio (separada da rota do Express)
+async function processarDisparoRecadastramento(id_imovel) {
+    const imovelXML = cacheImoveis.find(i => String(i.ListingID) === String(id_imovel));
+    if (!imovelXML) throw new Error("Imóvel não encontrado no XML.");
+
+    const resultadoDono = await buscarProprietarioNoCRM(id_imovel);
+    if (!resultadoDono || !resultadoDono.telefone || resultadoDono.telefone.length < 10) {
+        throw new Error("Telefone do proprietário inválido ou não encontrado no CRM.");
+    }
+
+    const dadosDono = resultadoDono;
+    const sender = `55${dadosDono.telefone}`; 
+    const endereco = obterEnderecoSeguro(imovelXML);
+    const precos = obterPrecosFormatados(imovelXML);
+    
+    const valorNumerico = precos.pVenda > 0 ? precos.pVenda : precos.pLocacao;
+    const tipoNegocioTexto = precos.pVenda > 0 ? "venda" : "locação";
+    const tipoNegocioCRM = precos.pVenda > 0 ? "sale" : "rent";
+
+    if (!leadsIndex[sender]) leadsIndex[sender] = {};
+    leadsIndex[sender].isProprietario = true;
+    leadsIndex[sender].imovelAtualizando = id_imovel; // Vincula o ID exato no state do lead
+    await fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2));
+
+    let conversa = obterHistorico(sender);
+    
+    await enviarTemplateAtualizacaoImovel(sender, dadosDono.nome, endereco, tipoNegocioTexto);
+    
+    const textoTemplateEnviado = `Olá ${dadosDono.nome}!\nEu sou a Sheila da Siciliano Imóveis.\nEstamos entrando em contato para atualizar o seu imóvel em ${endereco}.\nContinua disponível para ${tipoNegocioTexto}?`;
+    conversa.push({ "role": "model", "parts": [{ "text": textoTemplateEnviado }] });
+    
+    const contextoOculto = `INFORMAÇÃO INTERNA OBRIGATÓRIA: O cliente atual é o PROPRIETÁRIO do imóvel ID ${id_imovel}. O ID EXATO DESTE IMÓVEL É ${id_imovel}. O imóvel está cadastrado para ${tipoNegocioTexto} (tipo_negocio: '${tipoNegocioCRM}') pelo valor atual de R$${valorNumerico}. 
+
+REGRAS ESTRITAS:
+1. NUNCA pergunte o endereço, a referência ou o código do imóvel. Você JÁ TEM esses dados.
+2. Seu objetivo é apenas confirmar se continua disponível e o valor atual.
+3. Assim que ele confirmar, chame IMEDIATAMENTE a função 'atualizar_status_imovel_crm' passando o ID ${id_imovel}.`;
+
+    conversa.push({ "role": "user", "parts": [{ "text": contextoOculto }] });
+    salvarHistorico(sender, conversa);
+}
 async function gerarTokenSigafy() {
     try {
         const url = "https://projetos.sigafy.com.br/api/v1/quote/bail-auth";
@@ -797,55 +921,41 @@ app.post('/disparar-atualizacao-imovel/:id_imovel', async (req, res) => {
     if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) return res.status(403).send("Acesso negado.");
     
     const { id_imovel } = req.params;
-    const imovelXML = cacheImoveis.find(i => String(i.ListingID) === String(id_imovel));
-    if (!imovelXML) return res.status(404).send("Imóvel não encontrado no XML.");
-
-    // CORRIGIDO: Chamando o nome exato da função: buscarProprietarioNoCRM
-    const resultadoDono = await buscarProprietarioNoCRM(id_imovel);
     
-    if (!resultadoDono) {
-        return res.status(404).send("Contato do proprietário não encontrado no CRM (Retornou nulo).");
+    try {
+        // Chama exatamente a mesma função que a automação vai usar!
+        await processarDisparoRecadastramento(id_imovel);
+        
+        res.status(200).send(`Template de recadastramento disparado com sucesso para o imóvel ID: ${id_imovel}`);
+    } catch (error) {
+        console.error(`Erro na rota de disparo manual:`, error.message);
+        res.status(400).send(`Falha ao disparar: ${error.message}`);
     }
-
-    const dadosDono = resultadoDono;
-    
-    // Validação de segurança para garantir que o telefone veio limpo e com tamanho válido
-    if (!dadosDono.telefone || dadosDono.telefone.length < 10) {
-        return res.status(400).send(`Proprietário ${dadosDono.nome} encontrado, mas o telefone é inválido ou está vazio: "${dadosDono.telefone}"`);
-    }
-
-    const sender = `55${dadosDono.telefone}`; 
-    const endereco = obterEnderecoSeguro(imovelXML);
-    const precos = obterPrecosFormatados(imovelXML);
-    
-    const valorNumerico = precos.pVenda > 0 ? precos.pVenda : precos.pLocacao;
-    const tipoNegocioTexto = precos.pVenda > 0 ? "venda" : "locação";
-    const tipoNegocioCRM = precos.pVenda > 0 ? "sale" : "rent";
-
-    if (!leadsIndex[sender]) leadsIndex[sender] = {};
-    leadsIndex[sender].isProprietario = true;
-    fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
-
-    let conversa = obterHistorico(sender);
-    
-    await enviarTemplateAtualizacaoImovel(sender, dadosDono.nome, endereco, tipoNegocioTexto);
-    
-    const textoTemplateEnviado = `Olá ${dadosDono.nome}!\nEu sou a Sheila da Siciliano Imóveis.\nEstamos entrando em contato para atualizar o seu imóvel em ${endereco}.\nContinua disponível para ${tipoNegocioTexto}?`;
-    conversa.push({ "role": "model", "parts": [{ "text": textoTemplateEnviado }] });
-    
-    const contextoOculto = `INFORMAÇÃO INTERNA OBRIGATÓRIA: O cliente a seguir é o PROPRIETÁRIO do imóvel ID ${id_imovel}. O ID EXATO DESTE IMÓVEL É ${id_imovel}. 
-O imóvel está cadastrado para ${tipoNegocioTexto} (tipo_negocio: '${tipoNegocioCRM}') pelo valor atual de R$${valorNumerico}. 
-
-REGRAS ESTRITAS PARA ESTE ATENDIMENTO:
-1. NUNCA pergunte o endereço, a referência ou o código do imóvel ao proprietário. Você JÁ TEM esses dados salvos no sistema.
-2. Seu único objetivo agora é confirmar se o imóvel continua disponível e qual é o valor atual.
-3. Assim que o proprietário confirmar a disponibilidade, chame IMEDIATAMENTE a função 'atualizar_status_imovel_crm' utilizando obrigatoriamente o ID ${id_imovel}.`;
-    conversa.push({ "role": "user", "parts": [{ "text": contextoOculto }] });
-    
-    salvarHistorico(sender, conversa);
-
-    res.status(200).send(`Template de atualização disparado para ${dadosDono.nome} (${sender})`);
 });
+app.post('/iniciar-ciclo-recadastro', async (req, res) => {
+    if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) {
+        return res.status(403).send("Acesso negado.");
+    }
+
+    // Responde rápido para evitar timeout e roda a varredura em segundo plano no servidor
+    res.status(200).send("Varredura automática de recadastramento iniciada em segundo plano.");
+    
+    iniciarVarreduraRecadastramentoAutomatica().catch(err => {
+        console.error("Erro na varredura em segundo plano:", err.message);
+    });
+});
+
+// Agendamento diário (Roda a cada 24 horas, iniciando 1 minuto após ligar o servidor)
+setTimeout(() => {
+    setInterval(async () => {
+        try {
+            await iniciarVarreduraRecadastramentoAutomatica();
+        } catch (e) {
+            console.error("Erro no ciclo diário de recadastro:", e.message);
+        }
+    }, 86400000); 
+}, 60000);
+
 app.post('/disparar-reengajamento', async (req, res) => {
     const tokenFornecido = req.query.token;
     
@@ -1689,6 +1799,7 @@ app.post('/enviar-crm/:sender', async (req, res) => {
     } catch (error) { res.status(500).send("Erro ao enviar para CRM."); }
 });
 
+
 // --- NOVA ROTA: LIMPAR STATUS DE URGÊNCIA ---
 app.post('/remover-urgencia/:sender', async (req, res) => {
     const { sender } = req.params;
@@ -1852,6 +1963,8 @@ app.listen(PORT, '0.0.0.0', () => {
   
 
 });
+
+
 
 (async () => {
     try {
