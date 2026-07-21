@@ -54,20 +54,27 @@ function traduzirOrigem(nomePortal) {
     return "whatsapp_direto"; 
 }
 
-// --- SANITIZAÇÃO DE TEXTO DA IA (REMOVE FUNÇÕES VAZADAS) ---
+// --- SANITIZAÇÃO DE TEXTO DA IA (REMOVE FUNÇÕES E JSON VAZADOS) ---
 function limparTextoIA(texto) {
     if (!texto) return "";
+    let limpo = texto;
+
+    // 1. Remove chamadas no formato: nome_da_funcao(...)
     const funcoes = [
         "atualizar_status_imovel_crm", "registrar_reclamacao", "registrar_nome",
         "iniciar_captacao", "processar_captacao", "buscar_imovel",
         "buscar_imoveis_filtros", "gerar_cotacao_seguro", "qualificar_lead"
     ];
-    let limpo = texto;
     funcoes.forEach(func => {
-        // Remove nomeDaFuncao(...) e quebras de linha associadas a ela
         const regex = new RegExp(func + "\\s*\\([\\s\\S]*?\\)\\n*", "g");
         limpo = limpo.replace(regex, "");
     });
+
+    // 2. Remove blocos JSON crus e formatações de código (```json)
+    limpo = limpo.replace(/```json[\s\S]*?```/gi, "");
+    limpo = limpo.replace(/```[\s\S]*?```/g, "");
+    limpo = limpo.replace(/\{[\s\S]*"funcao"[\s\S]*\}/gi, "");
+
     return limpo.trim();
 }
 
