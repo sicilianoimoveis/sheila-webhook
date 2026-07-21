@@ -140,20 +140,12 @@ const obterPrecosFormatados = (imovel) => {
 
 async function buscarContatoProprietarioCRM(buildingId) {
     try {
-        const config = { 
-            headers: { 
-                "Authorization": `Bearer ${process.env.CRM_API_TOKEN}`, 
-                "Accept": "application/json" 
-            } 
-        };
+        const config = { headers: { "Authorization": `Bearer ${process.env.CRM_API_TOKEN}`, "Accept": "application/json" } };
         
-        // 1. Busca o imóvel para pegar o ID do dono
+        // 1. Busca o imóvel
         const resImovel = await axios.get("https://api.apresenta.me/buildings", {
             ...config,
-            params: {
-                "include[owners]": "*",
-                "filter[id]": buildingId
-            }
+            params: { "include[owners]": "*", "filter[id]": buildingId }
         });
         
         const ownerId = resImovel.data?.data?.[0]?.owners?.[0]?.id; 
@@ -162,7 +154,7 @@ async function buscarContatoProprietarioCRM(buildingId) {
             return null;
         }
 
-        // 2. Busca os dados de contato do proprietário na tabela persons
+        // 2. Busca os dados de contato do proprietário
         const resOwner = await axios.get("https://api.apresenta.me/persons", {
             ...config,
             params: { "include[contacts]": "*", "filter[id]": ownerId }
@@ -174,12 +166,12 @@ async function buscarContatoProprietarioCRM(buildingId) {
             return null;
         }
 
-        // 3. Caminho completo exato: data[0].contacts[0].cellphone
+        // 3. Extração alinhada com o que validamos no debug (resOwner.data.data[0].contacts[0].cellphone)
         const telefoneBruto = resOwner.data?.data?.[0]?.contacts?.[0]?.cellphone || dono.cellphone || "";
         const telefoneLimpo = String(telefoneBruto).replace(/\D/g, '');
 
         if (!telefoneLimpo || telefoneLimpo.length < 10) {
-            console.log(`LOG_DEBUG: Proprietário ${dono.name} não possui celular válido em data[0].contacts[0].cellphone. Valor lido: "${telefoneBruto}"`);
+            console.log(`LOG_DEBUG: Proprietário ${dono.name} não possui celular válido. Valor: "${telefoneBruto}"`);
             return null;
         }
 
