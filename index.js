@@ -899,15 +899,18 @@ app.post('/webhook', async (req, res) => {
    const conversa = obterHistorico(sender);
     const referral = msgData?.referral?.source_url;
 
-    try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`;
-        conversa.push({ "role": "user", "parts": [{ "text": textoCliente }] });
+   // --- CORREÇÃO DE CONTEXTO: CORTA O FUNIL SE FOR PROPRIETÁRIO ---
+        let promptDinamico = process.env.SYSTEM_PROMPT || "Você é a Sheila, corretora da Siciliano Imóveis.";
+        
+        if (leadsIndex[sender]?.isProprietario) {
+            promptDinamico += "\n\n[DIRETRIZ DE EXCEÇÃO TEMPORÁRIA]: O cliente atual é o PROPRIETÁRIO do imóvel que estamos atualizando. IGNORE TOTALMENTE o seu funil de vendas e locação (Passos 1, 2 e 3). Seu ÚNICO objetivo é confirmar se o imóvel continua disponível e qual é o valor atual. Quando ele confirmar, NÃO faça mais perguntas e chame IMEDIATAMENTE a função 'atualizar_status_imovel_crm'.";
+        }
 
         const payloadInicial = {
-    "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT || "Você é a Sheila, corretora da Siciliano Imóveis." }] },
-    "contents": conversa,
-    "tools": [{ "functionDeclarations": [
-        { 
+            "systemInstruction": { "parts": [{ "text": promptDinamico }] },
+            "contents": conversa,
+            "tools": [{ "functionDeclarations": [
+{ 
             "name": "atualizar_status_imovel_crm", 
             "description": "Use APENAS quando estiver falando com um PROPRIETÁRIO e ele confirmar a situação atual do imóvel e o valor. Esta função altera o status e o valor no sistema.", 
             "parameters": { 
@@ -1054,22 +1057,30 @@ const response = await axios.post(url, payloadInicial);
                 salvarHistorico(sender, conversa);
             }
 
-                else if (functionCall.name === "atualizar_status_imovel_crm") {
-                const { id_imovel, lock, status, valor_atualizado } = functionCall.args;
+              else if (functionCall.name === "atualizar_status_imovel_crm") {
+                // Extraindo todos os parâmetros enviados pela Sheila, incluindo tipo_negocio e valor_atualizado
+                const { id_imovel, lock, status, valor_atualizado, tipo_negocio } = functionCall.args;
                 
-                console.log(`LOG_DEBUG: Sheila solicitou atualização do Imóvel ${id_imovel} | Status: ${status} | Lock: ${lock}`);
+                console.log(`LOG_DEBUG: Sheila solicitou atualização do Imóvel ${id_imovel} | Status: ${status} | Lock: ${lock} | Valor: ${valor_atualizado} | Tipo: ${tipo_negocio}`);
 
-                // Rota de alteração do CRM (Confirme se o endpoint de edição é esse)
+                // Rota de alteração do CRM 
                 const urlUpdate = `https://api.apresenta.me/buildings/${id_imovel}`; 
                 
+                // Montando o payload EXATAMENTE como a documentação da Apresenta.me exige (com o array purposes)
                 const payloadUpdate = {
                     lock: lock,
-                    status: status
+                    status: status,
+                    purposes: [
+                        {
+                            purpose: tipo_negocio, // 'sale' ou 'rent'
+                            amount: valor_atualizado,
+                            amount_max: valor_atualizado 
+                        }
+                    ]
                 };
 
                 try {
-                    // Executa o PUT/POST de alteração no CRM
-                    // NOTA: Algumas APIs exigem o verbo PUT ou PATCH para edição, estou usando POST com _method=PUT por ser comum, verifique a documentação da Apresenta.me.
+                    // Executa o PUT de alteração no CRM
                     await axios.put(urlUpdate, payloadUpdate, {
                         headers: {
                             "Authorization": `Bearer ${process.env.CRM_API_TOKEN}`,
@@ -1081,8 +1092,10 @@ const response = await axios.post(url, payloadInicial);
                     console.log(`✅ Imóvel ${id_imovel} atualizado no CRM com sucesso!`);
                     
                     // Remove a tag de atualização do proprietário para encerrar o ciclo
-                    leadsIndex[sender].isProprietario = false;
-                    fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
+                    if (leadsIndex[sender]) {
+                        leadsIndex[sender].isProprietario = false;
+                        fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
+                    }
 
                     // Avisa a Sheila que deu certo para ela se despedir
                     conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: O sistema foi atualizado com sucesso (Status: ${status}). Agradeça ao proprietário pela atenção e encerre o atendimento educadamente.` }] });
@@ -1093,7 +1106,10 @@ const response = await axios.post(url, payloadInicial);
                 }
 
                 // Pede para a Sheila gerar a resposta final com base no sucesso/falha acima
-                const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
+                // Caso a variável promptDinamico exista no escopo, ela será usada, senão usa o padrão.
+                const promptFinal = typeof promptDinamico !== 'undefined' ? promptDinamico : process.env.SYSTEM_PROMPT;
+                
+                const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": promptFinal }] }, "contents": conversa });
                 const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
                 
                 if (texto) {
