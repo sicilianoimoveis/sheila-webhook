@@ -161,32 +161,23 @@ async function buscarContatoProprietarioCRM(imovelId) {
         });
         
         const dono = resOwner.data?.data?.[0];
-        if (!dono) {
-            console.log(`LOG_DEBUG: Pessoa ID ${ownerId} não encontrada no CRM.`);
+        if (!dono || !dono.contacts) {
+            console.log(`LOG_DEBUG: Pessoa ID ${ownerId} não encontrada ou sem contatos.`);
             return null;
         }
 
-        // 3. Extração correta procurando especificamente por cellphone
-        let telefoneBruto = "";
-        if (dono.contacts && Array.isArray(dono.contacts) && dono.contacts.length > 0) {
-            const contatoCel = dono.contacts.find(c => c.cellphone || c.value);
-            telefoneBruto = contatoCel?.cellphone || contatoCel?.value || "";
-        }
-        if (!telefoneBruto) {
-            telefoneBruto = dono.cellphone || "";
-        }
-
-        const telefoneLimpo = String(telefoneBruto).replace(/\D/g, '');
-
-        if (!telefoneLimpo || telefoneLimpo.length < 10) {
-            console.log(`LOG_DEBUG: Proprietário ${dono.name} não possui celular válido. Valor lido: "${telefoneBruto}"`);
+        // 3. Busca o celular usando corretamente a propriedade 'cellphone' vista no seu print
+        const contatoCelular = dono.contacts.find(c => c.cellphone && c.cellphone.replace(/\D/g, '').length >= 10);
+        
+        if (!contatoCelular) {
+            console.log(`LOG_DEBUG: Nenhum cellphone válido encontrado nos contatos do proprietário ${dono.name}.`);
             return null;
         }
 
         return {
             idDono: ownerId,
             nome: dono.name || "Proprietário",
-            telefone: telefoneLimpo
+            telefone: contatoCelular.cellphone.replace(/\D/g, '') // Remove formatação e deixa só números
         };
     } catch (error) {
         console.error(`Erro ao buscar contato do proprietário do imóvel ${imovelId}:`, error.message);
