@@ -40,7 +40,7 @@ const ORIGENS = {
     "chaves_na_mao": "7330",
     "vivareal": "7331",
     "zap": "7332",
-    "lead4sales": "7333"
+    "leads4sales": "7333"
 };
 
 // Traduz o nome que vem do CRM para a chave da Sheila
@@ -55,7 +55,7 @@ function traduzirOrigem(nomePortal) {
     if (texto.includes("chaves")) return "chaves_na_mao"; // Vai retornar 7330
     if (texto.includes("zap")) return "zap"; // Vai retornar 7332
     if (texto.includes("instagram")) return "instagram"; // Vai retornar 7328
-    if (texto.includes("lead4sales")) return "lead4sales"; // Vai retornar 7333
+    if (texto.includes("leads4sales")) return "lead4sales"; // Vai retornar 7333
     
     return "whatsapp_direto"; // Padrão se não achar nada
 }
@@ -833,7 +833,13 @@ app.post('/disparar-atualizacao-imovel/:id_imovel', async (req, res) => {
     const textoTemplateEnviado = `Olá ${dadosDono.nome}!\nEu sou a Sheila da Siciliano Imóveis.\nEstamos entrando em contato para atualizar o seu imóvel em ${endereco}.\nContinua disponível para ${tipoNegocioTexto}?`;
     conversa.push({ "role": "model", "parts": [{ "text": textoTemplateEnviado }] });
     
-    const contextoOculto = `INFORMAÇÃO INTERNA: O cliente a seguir é o PROPRIETÁRIO do imóvel ID ${id_imovel}. O imóvel está cadastrado para ${tipoNegocioTexto} (tipo_negocio: '${tipoNegocioCRM}') pelo valor atual de R$${valorNumerico}. Você acabou de disparar a mensagem acima. Aja naturalmente a partir da resposta dele. Seu objetivo é descobrir se o imóvel continua disponível e confirmar qual é o valor atual (amount) para atualização sistêmica.`;
+    const contextoOculto = `INFORMAÇÃO INTERNA OBRIGATÓRIA: O cliente a seguir é o PROPRIETÁRIO do imóvel ID ${id_imovel}. O ID EXATO DESTE IMÓVEL É ${id_imovel}. 
+O imóvel está cadastrado para ${tipoNegocioTexto} (tipo_negocio: '${tipoNegocioCRM}') pelo valor atual de R$${valorNumerico}. 
+
+REGRAS ESTRITAS PARA ESTE ATENDIMENTO:
+1. NUNCA pergunte o endereço, a referência ou o código do imóvel ao proprietário. Você JÁ TEM esses dados salvos no sistema.
+2. Seu único objetivo agora é confirmar se o imóvel continua disponível e qual é o valor atual.
+3. Assim que o proprietário confirmar a disponibilidade, chame IMEDIATAMENTE a função 'atualizar_status_imovel_crm' utilizando obrigatoriamente o ID ${id_imovel}.`;
     conversa.push({ "role": "user", "parts": [{ "text": contextoOculto }] });
     
     salvarHistorico(sender, conversa);
