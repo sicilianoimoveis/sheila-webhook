@@ -945,6 +945,15 @@ const response = await axios.post(url, payloadInicial);
                 if (texto) {
                     await enviarMensagem(sender, texto);
                     conversa.push({ "role": "model", "parts": [{ "text": texto }] });
+                    
+                    // --- NOVO: DISPARO DO CONVITE DE AVALIAÇÃO ---
+                    await new Promise(resolve => setTimeout(resolve, 1500)); // Pausa de digitação
+                    
+                    const msgAvaliacao = "Ah, e se estiver satisfeito com o meu atendimento até aqui, te convido a deixar uma avaliação rápida no link abaixo. Ajuda muito o meu trabalho!\nhttps://search.google.com/local/writereview?placeid=ChIJ_w2xUXjfmwAR3DnuGUi-5hQ";
+                    await enviarMensagem(sender, msgAvaliacao);
+                    conversa.push({ "role": "model", "parts": [{ "text": msgAvaliacao }] });
+                    // ----------------------------------------------
+                    
                     salvarHistorico(sender, conversa);
                 }
             }
