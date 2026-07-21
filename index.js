@@ -138,19 +138,19 @@ const obterPrecosFormatados = (imovel) => {
 // --- INTEGRAÇÃO SIGAFY E CRM (SEGURO FIANÇA) ---
 // ==========================================
 
-async function buscarContatoProprietarioCRM(buildingId) {
+async function buscarContatoProprietarioCRM(imovelId) {
     try {
         const config = { headers: { "Authorization": `Bearer ${process.env.CRM_API_TOKEN}`, "Accept": "application/json" } };
         
-        // 1. Busca o imóvel
+        // 1. Busca o imóvel para pegar o ID do dono
         const resImovel = await axios.get("https://api.apresenta.me/buildings", {
             ...config,
-            params: { "include[owners]": "*", "filter[id]": buildingId }
+            params: { "include[owners]": "*", "filter[id]": imovelId }
         });
         
         const ownerId = resImovel.data?.data?.[0]?.owners?.[0]?.id; 
         if (!ownerId) {
-            console.log(`LOG_DEBUG: Imóvel ${buildingId} não possui ownerId vinculado.`);
+            console.log(`LOG_DEBUG: Imóvel ${imovelId} não possui ownerId vinculado.`);
             return null;
         }
 
@@ -166,12 +166,20 @@ async function buscarContatoProprietarioCRM(buildingId) {
             return null;
         }
 
-        // 3. Extração alinhada com o que validamos no debug (resOwner.data.data[0].contacts[0].cellphone)
-        const telefoneBruto = resOwner.data?.data?.[0]?.contacts?.[0]?.cellphone || dono.cellphone || "";
+        // 3. Extração blindada (Testa cellphone e value na raiz ou no array contacts)
+        let telefoneBruto = "";
+        if (dono.contacts && Array.isArray(dono.contacts) && dono.contacts.length > 0) {
+            const contato = dono.contacts[0];
+            telefoneBruto = contato.cellphone || contato.value || contato.phone || "";
+        }
+        if (!telefoneBruto) {
+            telefoneBruto = dono.cellphone || dono.phone || "";
+        }
+
         const telefoneLimpo = String(telefoneBruto).replace(/\D/g, '');
 
         if (!telefoneLimpo || telefoneLimpo.length < 10) {
-            console.log(`LOG_DEBUG: Proprietário ${dono.name} não possui celular válido. Valor: "${telefoneBruto}"`);
+            console.log(`LOG_DEBUG: Proprietário ${dono.name} não possui celular válido. Valor lido: "${telefoneBruto}"`);
             return null;
         }
 
@@ -181,7 +189,7 @@ async function buscarContatoProprietarioCRM(buildingId) {
             telefone: telefoneLimpo
         };
     } catch (error) {
-        console.error(`Erro ao buscar contato do proprietário do imóvel ${buildingId}:`, error.response?.data || error.message);
+        console.error(`Erro ao buscar contato do proprietário do imóvel ${imovelId}:`, error.message);
         return null;
     }
 }
