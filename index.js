@@ -409,6 +409,72 @@ async function enviarTemplateMeta(para, nomeTemplate, variavelNome) {
     }
 }
 
+async function enviarTemplateAtualizacaoImovel(para, nome, endereco, tipoNegocio) {
+    const url = `https://graph.facebook.com/v25.0/1110417002164010/messages`;
+    const payload = {
+        messaging_product: "whatsapp",
+        to: para,
+        type: "template",
+        template: {
+            name: "atualizacaodeimovel",
+            language: { code: "pt_BR" },
+            components: [
+                {
+                    type: "body",
+                    parameters: [
+                        { type: "text", text: nome },
+                        { type: "text", text: endereco },
+                        { type: "text", text: tipoNegocio }
+                    ]
+                }
+            ]
+        }
+    };
+    try {
+        await axios.post(url, payload, { headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}` } });
+    } catch (error) { 
+        console.error(`Erro ao enviar template atualizacaodeimovel:`, error.response?.data || error.message); 
+    }
+}
+
+// --- ROTINA DE ATUALIZAÇÃO DE IMÓVEIS (RECADASTRAMENTO) ---
+
+async function buscarContatoProprietarioCRM(imovelId) {
+    try {
+        const config = { headers: { "Authorization": `Bearer ${process.env.CRM_API_TOKEN}`, "Accept": "application/json" } };
+        
+        // 1. Busca o imóvel para pegar o ID do dono (Baseado na imagem 1 e 4)
+        const resImovel = await axios.get("https://api.apresenta.me/buildings", {
+            ...config,
+            params: { "include[owners]": "*", "filter[id]": imovelId }
+        });
+        
+        const ownerId = resImovel.data?.data?.[0]?.owners?.[0]?.id; 
+        if (!ownerId) return null;
+
+        // 2. Busca os dados de contato do proprietário (Baseado na imagem 6 e 7)
+        const resOwner = await axios.get("https://api.apresenta.me/persons", {
+            ...config,
+            params: { "include[contacts]": "*", "filter[id]": ownerId }
+        });
+        
+        const dono = resOwner.data?.data?.[0];
+        if (!dono || !dono.contacts) return null;
+
+        // Procura um telefone celular válido nos contatos
+        const contatoCelular = dono.contacts.find(c => c.value && c.value.replace(/\D/g, '').length >= 10);
+        if (!contatoCelular) return null;
+
+        return {
+            idDono: ownerId,
+            nome: dono.name || "Proprietário",
+            telefone: contatoCelular.value.replace(/\D/g, '') // Apenas números
+        };
+    } catch (error) {
+        console.error(`Erro ao buscar contato do proprietário do imóvel ${imovelId}:`, error.message);
+        return null;
+    }
+}
 // NOVO: Função para obter a URL de download do áudio no WhatsApp
 async function obterUrlMedia(mediaId) {
     const url = `https://graph.facebook.com/v25.0/${mediaId}/`;
@@ -672,6 +738,48 @@ app.get('/chat/:sender', (req, res) => {
     res.send(html);
 });
 // Adicione isso nas suas rotas do Express
+// Adicione isso nas suas rotas do Express
+app.post('/disparar-atualizacao-imovel/:imovelId', async (req, res) => {
+    if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) return res.status(403).send("Acesso negado.");
+    
+    const { imovelId } = req.params;
+    const imovelXML = cacheImoveis.find(i => String(i.ListingID) === String(imovelId));
+    if (!imovelXML) return res.status(404).send("Imóvel não encontrado no XML.");
+
+    const dadosDono = await buscarContatoProprietarioCRM(imovelId);
+    if (!dadosDono) return res.status(404).send("Contato do proprietário não encontrado no CRM.");
+
+    const sender = `55${dadosDono.telefone}`; 
+    const endereco = obterEnderecoSeguro(imovelXML);
+    const precos = obterPrecosFormatados(imovelXML);
+    
+    // Identifica valores e tipos para o CRM e para o Texto
+    const valorNumerico = precos.pVenda > 0 ? precos.pVenda : precos.pLocacao;
+    const tipoNegocioTexto = precos.pVenda > 0 ? "venda" : "locação";
+    const tipoNegocioCRM = precos.pVenda > 0 ? "sale" : "rent"; // Chave para a API
+
+    if (!leadsIndex[sender]) leadsIndex[sender] = {};
+    leadsIndex[sender].isProprietario = true;
+    fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
+
+    let conversa = obterHistorico(sender);
+    
+    // 1. Dispara o template com as 3 variáveis via Meta API
+    await enviarTemplateAtualizacaoImovel(sender, dadosDono.nome, endereco, tipoNegocioTexto);
+    
+    // 2. Salva o texto EXATO do template no histórico
+    const textoTemplateEnviado = `Olá ${dadosDono.nome}!\nEu sou a Sheila da Siciliano Imóveis.\nEstamos entrando em contato para atualizar o seu imóvel em ${endereco}.\nContinua disponível para ${tipoNegocioTexto}?`;
+    conversa.push({ "role": "model", "parts": [{ "text": textoTemplateEnviado }] });
+    
+    // 3. Adiciona o contexto oculto de recadastramento com o 'amount' e 'purpose' corretos
+    const contextoOculto = `INFORMAÇÃO INTERNA: O cliente a seguir é o PROPRIETÁRIO do imóvel ID ${imovelId}. O imóvel está cadastrado para ${tipoNegocioTexto} (tipo_negocio: '${tipoNegocioCRM}') pelo valor atual de R$${valorNumerico}. Você acabou de disparar a mensagem acima. Aja naturalmente a partir da resposta dele. Seu objetivo é descobrir se o imóvel continua disponível e confirmar qual é o valor atual (amount) para atualização sistêmica.`;
+    conversa.push({ "role": "user", "parts": [{ "text": contextoOculto }] });
+    
+    salvarHistorico(sender, conversa);
+
+    res.status(200).send(`Template de atualização disparado para ${dadosDono.nome} (${sender})`);
+});
+
 app.post('/disparar-reengajamento', async (req, res) => {
     const tokenFornecido = req.query.token;
     
@@ -739,6 +847,27 @@ app.post('/webhook', async (req, res) => {
     "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT || "Você é a Sheila, corretora da Siciliano Imóveis." }] },
     "contents": conversa,
     "tools": [{ "functionDeclarations": [
+        { 
+            "name": "atualizar_status_imovel_crm", 
+            "description": "Use APENAS quando estiver falando com um PROPRIETÁRIO e ele confirmar a situação atual do imóvel e o valor. Esta função altera o status e o valor no sistema.", 
+            "parameters": { 
+                "type": "object", 
+                "properties": { 
+                    "id_imovel": { "type": "string", "description": "O ID do imóvel." },
+                    "tipo_negocio": { "type": "string", "description": "O tipo de negócio atual (retorne EXATAMENTE 'sale' ou 'rent' de acordo com o contexto oculto)." },
+                    "valor_atualizado": { "type": "number", "description": "O valor atualizado informado pelo proprietário (apenas números). Se ele disser que NÃO mudou, retorne o valor que você tem no contexto." },
+                    "lock": { 
+                        "type": "string", 
+                        "description": "O motivo da situação. Valores permitidos: 'free' (continua disponível), 'rented', 'rented_by_other', 'rented_available', 'available_to_sale', 'sold', 'sold_by_other', 'suspended', 'expired', 'awaiting_approval', 'inactive_on_site', 'only_portals', 'reserved', 'awaiting_proposal'."
+                    },
+                    "status": { 
+                        "type": "string", 
+                        "description": "A situação geral do imóvel. Valores permitidos: 'active', 'inactive', 'filed' ou 'rented'."
+                    }
+                }, 
+                "required": ["id_imovel", "tipo_negocio", "valor_atualizado", "lock", "status"] 
+            } 
+        },
         { 
             "name": "registrar_reclamacao", 
             "description": "Use IMEDIATAMENTE se o cliente reclamar de mau atendimento, relatar um problema grave (ex: falso corretor) ou cobrar um retorno que não foi dado.", 
@@ -851,6 +980,8 @@ const response = await axios.post(url, payloadInicial);
         if (functionCall) {
             console.log("LOG_DEBUG: A Sheila chamou a função:", functionCall.name);
 
+                
+
             if (functionCall.name === "iniciar_captacao") {
                 if (!leadsIndex[sender]) atualizarIndiceLeads(sender, null, "WhatsApp"); 
                 leadsIndex[sender].categoria = 'captacao';
@@ -861,6 +992,55 @@ const response = await axios.post(url, payloadInicial);
                 await enviarMensagem(sender, resposta);
                 conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
                 salvarHistorico(sender, conversa);
+            }
+
+                else if (functionCall.name === "atualizar_status_imovel_crm") {
+                const { id_imovel, lock, status, valor_atualizado } = functionCall.args;
+                
+                console.log(`LOG_DEBUG: Sheila solicitou atualização do Imóvel ${id_imovel} | Status: ${status} | Lock: ${lock}`);
+
+                // Rota de alteração do CRM (Confirme se o endpoint de edição é esse)
+                const urlUpdate = `https://api.apresenta.me/buildings/${id_imovel}`; 
+                
+                const payloadUpdate = {
+                    lock: lock,
+                    status: status
+                };
+
+                try {
+                    // Executa o PUT/POST de alteração no CRM
+                    // NOTA: Algumas APIs exigem o verbo PUT ou PATCH para edição, estou usando POST com _method=PUT por ser comum, verifique a documentação da Apresenta.me.
+                    await axios.put(urlUpdate, payloadUpdate, {
+                        headers: {
+                            "Authorization": `Bearer ${process.env.CRM_API_TOKEN}`,
+                            "Content-Type": "application/json",
+                            "Accept": "application/json"
+                        }
+                    });
+
+                    console.log(`✅ Imóvel ${id_imovel} atualizado no CRM com sucesso!`);
+                    
+                    // Remove a tag de atualização do proprietário para encerrar o ciclo
+                    leadsIndex[sender].isProprietario = false;
+                    fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
+
+                    // Avisa a Sheila que deu certo para ela se despedir
+                    conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: O sistema foi atualizado com sucesso (Status: ${status}). Agradeça ao proprietário pela atenção e encerre o atendimento educadamente.` }] });
+
+                } catch (errorUpdate) {
+                    console.error("❌ Erro ao atualizar imóvel no CRM:", errorUpdate.response?.data || errorUpdate.message);
+                    conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: Houve uma falha sistêmica ao tentar salvar. Agradeça ao cliente pela informação e diga que seus dados já foram anotados.` }] });
+                }
+
+                // Pede para a Sheila gerar a resposta final com base no sucesso/falha acima
+                const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
+                const texto = respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+                
+                if (texto) {
+                    await enviarMensagem(sender, texto);
+                    conversa.push({ "role": "model", "parts": [{ "text": texto }] });
+                    salvarHistorico(sender, conversa);
+                }
             }
                 else if (functionCall.name === "gerar_cotacao_seguro") {
                 const dadosCliente = functionCall.args;
