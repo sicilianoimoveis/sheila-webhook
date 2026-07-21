@@ -809,8 +809,8 @@ app.post('/webhook', async (req, res) => {
         },
                 { 
             "name": "gerar_cotacao_seguro", 
-            "description": "Chame APENAS QUANDO o cliente quiser alugar um imóvel E já tiver fornecido TODOS os dados obrigatórios: Nome, CPF, Data de Nascimento, E-mail e Celular. Se o cliente enviar os dados em partes ou faltar o celular, NÃO CHAME A FUNÇÃO. Pergunte de forma amigável qual o dado que está faltando.", 
-            "parameters": { 
+            "description": "Chame APENAS QUANDO o cliente quiser alugar um imóvel E já tiver fornecido TODOS os dados obrigatórios: Nome, CPF, Data de Nascimento, E-mail e Celular. IMPORTANTE: Quando for pedir os dados que faltam, faça isso de forma natural, amigável e coloque os itens em uma pequena lista (bullet points) para facilitar a leitura do cliente.", 
+            "parameters": {  
                 "type": "object", 
                 "properties": { 
                     "nome": { "type": "string", "description": "Nome completo do cliente" }, 
@@ -872,7 +872,8 @@ const response = await axios.post(url, payloadInicial);
                     
                     console.log("LOG_DEBUG: A Sheila tentou chamar o seguro sem dados completos. Bloqueando...");
                     
-                    const aviso = "INFORMAÇÃO INTERNA DA SHEILA: Você tentou gerar a cotação de seguro, mas o cliente AINDA NÃO FORNECEU todos os dados (CPF, Nome, Data de Nascimento, E-mail e Celular). Peça os dados exatos que faltam agora para poder agilizar a visita.";
+                    const aviso = "INFORMAÇÃO INTERNA DA SHEILA: Você tentou gerar a cotação de seguro, mas o cliente AINDA NÃO FORNECEU todos os dados (CPF, Nome, Data de Nascimento, E-mail e Celular). Peça os dados que faltam de forma muito educada e coloque-os em formato de lista (um embaixo do outro) para o cliente entender facilmente.";
+
                     
                     conversa.push({ "role": "user", "parts": [{ "text": aviso }] });
                     const respCorrecao = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
@@ -1042,7 +1043,8 @@ const response = await axios.post(url, payloadInicial);
                     const precos = obterPrecosFormatados(imovel);
                     const desc = v(imovel.Details?.Description);
                     
-                    let dados = `DADOS TÉCNICOS PARA CONSULTA INTERNA: ID ${imovel.ListingID}, Título: ${imovel.Title}, Venda: ${precos.venda}, Locação: ${precos.locacao}, Condomínio: ${precos.condominio}, IPTU: ${precos.iptu}, Endereço permitido (NÃO informe número/complemento): ${enderecoSeguro}, Quartos: ${v(imovel.Details?.Bedrooms)}, Suítes: ${v(imovel.Details?.Suites)}, Vagas: ${v(imovel.Details?.Garage)}, Extras: ${features}, Descrição: ${desc}. Link: ${imovel.DetailViewUrl}. Lembre-se: aplique rigorosamente as diretrizes do seu SYSTEM PROMPT ao responder (resumo curto, texto corrido, sem listas).`;
+                    let dados = `DADOS TÉCNICOS PARA CONSULTA INTERNA: ID ${imovel.ListingID}, Título: ${imovel.Title}, Venda: ${precos.venda}, Locação: ${precos.locacao}, Condomínio: ${precos.condominio}, IPTU: ${precos.iptu}, Endereço permitido (NÃO informe número/complemento): ${enderecoSeguro}, Quartos: ${v(imovel.Details?.Bedrooms)}, Suítes: ${v(imovel.Details?.Suites)}, Vagas: ${v(imovel.Details?.Garage)}, Extras: ${features}, Descrição: ${desc}. Link: ${imovel.DetailViewUrl}. Lembre-se: aja com naturalidade e empatia ao apresentar este imóvel.`;
+
 
                     conversa.push({ "role": "user", "parts": [{ "text": dados }] });
                 } else {
