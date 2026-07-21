@@ -706,19 +706,65 @@ app.post('/webhook', async (req, res) => {
                 conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
                 salvarHistorico(sender, conversa);
             }
-            else if (functionCall.name === "atualizar_status_imovel_crm") {
+           else if (functionCall.name === "atualizar_status_imovel_crm") {
                 const { id_imovel, lock, status, valor_atualizado, tipo_negocio } = functionCall.args;
-                const urlUpdate = `https://api.apresenta.me/buildings/${id_imovel}`; 
-                const payloadUpdate = { lock: lock, status: status, purposes: [{ purpose: tipo_negocio, amount: valor_atualizado, amount_max: valor_atualizado }] };
+                console.log(`LOG_DEBUG: Atualizando Imóvel ${id_imovel} | Status: ${status} | Lock: ${lock} | Valor: ${valor_atualizado} | Tipo: ${tipo_negocio}`);
+
+                const configCRM = {
+                    headers: {
+                        "Authorization": `Bearer ${process.env.CRM_API_TOKEN}`,
+                        "Content-Type": "application/json",
+                        "Accept": "application/json"
+                    }
+                };
 
                 try {
-                    await axios.put(urlUpdate, payloadUpdate, { headers: { "Authorization": `Bearer ${process.env.CRM_API_TOKEN}`, "Content-Type": "application/json", "Accept": "application/json" } });
+                    // 1. Consulta rápida para pegar os IDs das finalidades existentes
+                    const getRes = await axios.get(`https://api.apresenta.me/buildings`, {
+                        ...configCRM,
+                        params: { "filter[id]": id_imovel, "include[purposes]": "*" }
+                    });
+                    
+                    const finalidadesExistentes = getRes.data?.data?.[0]?.purposes || [];
+                    
+                    // 2. Mapeia as finalidades mantendo os IDs para não gerar o erro de "Removida"
+                    const updatedPurposes = finalidadesExistentes.map(p => {
+                        if (p.purpose === tipo_negocio) {
+                            return {
+                                id: p.id, // O segredo está aqui: mandar o ID de volta!
+                                purpose: p.purpose,
+                                amount: valor_atualizado,
+                                amount_max: valor_atualizado
+                            };
+                        }
+                        return { id: p.id, purpose: p.purpose, amount: p.amount, amount_max: p.amount_max };
+                    });
+
+                    // Se por acaso o imóvel não tinha essa finalidade cadastrada, adiciona como nova
+                    if (updatedPurposes.length === 0 || !updatedPurposes.find(p => p.purpose === tipo_negocio)) {
+                        updatedPurposes.push({ purpose: tipo_negocio, amount: valor_atualizado, amount_max: valor_atualizado });
+                    }
+
+                    // 3. Monta o Payload exato e dispara
+                    const urlUpdate = `https://api.apresenta.me/buildings/${id_imovel}`; 
+                    const payloadUpdate = {
+                        lock: lock,
+                        status: status,
+                        purposes: updatedPurposes
+                    };
+
+                    await axios.put(urlUpdate, payloadUpdate, configCRM);
+                    console.log(`✅ Imóvel ${id_imovel} atualizado no CRM com sucesso (Preço ajustado sem remover finalidade)!`);
+                    
                     if (leadsIndex[sender]) {
                         leadsIndex[sender].isProprietario = false;
                         fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
                     }
+
                     conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: O sistema foi atualizado com sucesso (Status: ${status}). Agradeça ao proprietário pela atenção e encerre o atendimento educadamente.` }] });
+
                 } catch (errorUpdate) {
+                    console.error("❌ Erro ao atualizar imóvel no CRM:", errorUpdate.response?.data || errorUpdate.message);
                     conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: Houve uma falha sistêmica ao tentar salvar. Agradeça ao cliente pela informação e diga que seus dados já foram anotados.` }] });
                 }
 
