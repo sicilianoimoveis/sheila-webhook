@@ -296,31 +296,23 @@ async function processarDisparoRecadastramento(id_imovel) {
     const sender = `55${dadosDono.telefone}`; 
     const endereco = obterEnderecoSeguro(imovelXML);
     const precos = obterPrecosFormatados(imovelXML);
-    
-    const valorNumerico = precos.pVenda > 0 ? precos.pVenda : precos.pLocacao;
     const tipoNegocioTexto = precos.pVenda > 0 ? "venda" : "locação";
-    const tipoNegocioCRM = precos.pVenda > 0 ? "sale" : "rent";
 
+    // Salva o estado de proprietário e o ID do imóvel no índice persistente do lead
     if (!leadsIndex[sender]) leadsIndex[sender] = {};
     leadsIndex[sender].isProprietario = true;
-    leadsIndex[sender].imovelAtualizando = id_imovel; // Vincula o ID exato no state do lead
+    leadsIndex[sender].imovelAtualizando = id_imovel; 
     await fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2));
 
     let conversa = obterHistorico(sender);
     
+    // Dispara o template via Meta
     await enviarTemplateAtualizacaoImovel(sender, dadosDono.nome, endereco, tipoNegocioTexto);
     
+    // Adiciona apenas a mensagem oficial do modelo no histórico (mantendo a alternância perfeita)
     const textoTemplateEnviado = `Olá ${dadosDono.nome}!\nEu sou a Sheila da Siciliano Imóveis.\nEstamos entrando em contato para atualizar o seu imóvel em ${endereco}.\nContinua disponível para ${tipoNegocioTexto}?`;
     conversa.push({ "role": "model", "parts": [{ "text": textoTemplateEnviado }] });
     
-    const contextoOculto = `INFORMAÇÃO INTERNA OBRIGATÓRIA: O cliente atual é o PROPRIETÁRIO do imóvel ID ${id_imovel}. O ID EXATO DESTE IMÓVEL É ${id_imovel}. O imóvel está cadastrado para ${tipoNegocioTexto} (tipo_negocio: '${tipoNegocioCRM}') pelo valor atual de R$${valorNumerico}. 
-
-REGRAS ESTRITAS:
-1. NUNCA pergunte o endereço, a referência ou o código do imóvel. Você JÁ TEM esses dados.
-2. Seu objetivo é apenas confirmar se continua disponível e o valor atual.
-3. Assim que ele confirmar, chame IMEDIATAMENTE a função 'atualizar_status_imovel_crm' passando o ID ${id_imovel}.`;
-
-    conversa.push({ "role": "user", "parts": [{ "text": contextoOculto }] });
     salvarHistorico(sender, conversa);
 }
 async function gerarTokenSigafy() {
@@ -1020,11 +1012,23 @@ app.post('/webhook', async (req, res) => {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`;
         conversa.push({ "role": "user", "parts": [{ "text": textoCliente }] });
 
-        // --- CORREÇÃO DE CONTEXTO: CORTA O FUNIL SE FOR PROPRIETÁRIO ---
+       // --- CORREÇÃO DE CONTEXTO: INJEÇÃO DINÂMICA NO SYSTEM PROMPT ---
         let promptDinamico = process.env.SYSTEM_PROMPT || "Você é a Sheila, corretora da Siciliano Imóveis.";
-        
-        if (leadsIndex[sender]?.isProprietario) {
-            promptDinamico += "\n\n[DIRETRIZ DE EXCEÇÃO TEMPORÁRIA]: O cliente atual é o PROPRIETÁRIO do imóvel que estamos atualizando. IGNORE TOTALMENTE o seu funil de vendas e locação (Passos 1, 2 e 3). Seu ÚNICO objetivo é confirmar se o imóvel continua disponível e qual é o valor atual. Quando ele confirmar, NÃO faça mais perguntas e chame IMEDIATAMENTE a função 'atualizar_status_imovel_crm'.";
+
+        if (leadsIndex[sender]?.isProprietario && leadsIndex[sender]?.imovelAtualizando) {
+            const idImovelProp = leadsIndex[sender].imovelAtualizando;
+            const imovelXMLProp = cacheImoveis.find(i => String(i.ListingID) === String(idImovelProp));
+            const precosProp = imovelXMLProp ? obterPrecosFormatados(imovelXMLProp) : { pVenda: 0, pLocacao: 0 };
+            const valorNumProp = precosProp.pVenda > 0 ? precosProp.pVenda : precosProp.pLocacao;
+            const tipoNegocioProp = precosProp.pVenda > 0 ? "sale" : "rent";
+            const tipoNegocioTxt = precosProp.pVenda > 0 ? "venda" : "locação";
+
+            promptDinamico += `\n\n[DIRETRIZ DE EXCEÇÃO TEMPORÁRIA]: O cliente atual é o PROPRIETÁRIO do imóvel ID ${idImovelProp}. O ID EXATO DESTE IMÓVEL É ${idImovelProp}. O imóvel está cadastrado para ${tipoNegocioTxt} (tipo_negocio: '${tipoNegocioProp}') pelo valor atual de R$${valorNumProp}. 
+
+REGRAS ESTRITAS:
+1. NUNCA pergunte o endereço, a referência ou o código do imóvel ao proprietário. Você JÁ TEM esses dados salvos no sistema.
+2. Seu único objetivo agora é confirmar se o imóvel continua disponível e qual é o valor atual.
+3. Assim que o proprietário confirmar a disponibilidade, chame IMEDIATAMENTE a função 'atualizar_status_imovel_crm' utilizando obrigatoriamente o ID ${idImovelProp}.`;
         }
 
         const payloadInicial = {
