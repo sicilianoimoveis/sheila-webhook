@@ -583,7 +583,7 @@ app.get('/chat/:sender', (req, res) => {
         const txt = m.parts && m.parts[0] ? m.parts[0].text : (m.text || "");
         return txt && 
                !txt.includes("DADOS TÉCNICOS PARA CONSULTA") && 
-               !txt.includes("INFORMAÇÃO INTERNA") && // <-- PEGA QUALQUER MENSAGEM INTERNA
+               !txt.includes("INFORMAÇÃO INTERNA") && 
                !txt.includes("CONSULTA DE IMÓVEL") && 
                !txt.includes("O nome deste cliente é");
     });
@@ -591,22 +591,24 @@ app.get('/chat/:sender', (req, res) => {
     let html = `<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body { font-family: sans-serif; background: #e5ddd5; margin: 0; padding: 0; }
-        .header { background: #fff; padding: 20px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        .header img { width: 80px; height: auto; margin-bottom: 10px; }
-        .lead-info { background: #fff; padding: 15px; text-align: center; margin-bottom: 10px; border-bottom: 1px solid #ddd; }
+        .header { background: #fff; padding: 15px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); position: relative; }
+        .header img { width: 70px; height: auto; margin-bottom: 5px; }
+        .btn-voltar { position: absolute; left: 15px; top: 20px; background: #3b82f6; color: white; padding: 6px 12px; border-radius: 4px; text-decoration: none; font-size: 12px; font-weight: bold; }
+        .lead-info { background: #fff; padding: 12px; text-align: center; margin-bottom: 10px; border-bottom: 1px solid #ddd; }
         .msg { padding: 10px 15px; margin: 8px 12px; border-radius: 8px; max-width: 75%; position: relative; font-size: 14px; word-wrap: break-word; box-shadow: 0 1px 1px rgba(0,0,0,0.1); line-height: 1.4; }
         .user { background: #dcf8c6; margin-left: auto; text-align: left; }
         .model { background: #ffffff; margin-right: auto; text-align: left; }
         .time { font-size: 10px; color: #999; margin-top: 5px; display: block; text-align: right; }
     </style></head><body>
     <div class="header">
+        <a href="javascript:history.back()" class="btn-voltar">⬅ Voltar</a>
         <img src="https://img.apre.me/M7UtVktPLcjSy00sSk8sKc7LVMhPz8-RL07NyUyzzVSztDQwtU0GAA.jpeg" alt="Logo">
-        <div style="font-weight:bold; color:#333;">Atendido pela Sheila</div>
+        <div style="font-weight:bold; color:#333; font-size: 14px;">Atendido pela Sheila</div>
     </div>
     <div class="lead-info">
         <strong>Cliente:</strong> ${nomeLead}<br>
         <small>${sender}</small><br>
-        <a href="https://wa.me/${sender}" target="_blank" style="color:#075e54; font-weight:bold; text-decoration:none;">Enviar WhatsApp direto</a>
+        <a href="https://wa.me/${sender}" target="_blank" style="color:#075e54; font-weight:bold; text-decoration:none; font-size: 13px;">📱 Enviar WhatsApp direto</a>
     </div>
     ${mensagensFiltradas.map(m => {
         const text = m.parts && m.parts[0] ? m.parts[0].text : (m.text || "");
@@ -619,6 +621,7 @@ app.get('/chat/:sender', (req, res) => {
 
     res.send(html);
 });
+
 app.get('/debug-imovel/:id_imovel', async (req, res) => {
     if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) return res.status(403).send("Acesso negado.");
     const { id_imovel } = req.params;
