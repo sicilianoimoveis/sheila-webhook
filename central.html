@@ -24,20 +24,19 @@
             --text: #333;
         }
         body { font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; background-color: var(--bg-body); }
-        
+
         #sidebar { width: 380px; background: var(--bg-sidebar); border-right: 1px solid #cbd5e1; display: flex; flex-direction: column; }
         header { padding: 20px; text-align: center; background: var(--bg-sidebar); border-bottom: 1px solid #cbd5e1; }
         header img { width: 120px; }
-        
+
         .search-container { padding: 15px; border-bottom: 1px solid #cbd5e1; }
         .filter-group { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 8px; }
         .search-box, .filter-select { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; box-sizing: border-box; }
-        
-        .btn-reengajamento {
+
+        .btn-acao {
             width: 100%;
             padding: 10px;
-            margin-top: 12px;
-            background-color: #3b82f6; 
+            margin-top: 10px;
             color: white;
             border: none;
             border-radius: 6px;
@@ -50,11 +49,17 @@
             justify-content: center;
             gap: 8px;
         }
+        .btn-reengajamento { background-color: #3b82f6; }
         .btn-reengajamento:hover { background-color: #2563eb; }
-        .btn-reengajamento:disabled { background-color: #94a3b8; cursor: not-allowed; }
+        
+        .btn-atualizar { background-color: #28a745; }
+        .btn-atualizar:hover { background-color: #218838; }
+
+        .btn-parar { background-color: #dc3545; }
+        .btn-parar:hover { background-color: #c82333; }
 
         #leads-container { flex: 1; overflow-y: auto; padding: 15px; }
-        
+
         .card { background: var(--bg-card); padding: 16px; margin-bottom: 12px; border-radius: 8px; border-left: 5px solid #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.1); cursor: pointer; transition: 0.2s; }
         .card:hover { border-left-color: var(--primary); }
         .card.urgente { border-left-color: #ef4444; background-color: #fef2f2; }
@@ -70,7 +75,7 @@
         #main-chat { flex: 1; display: flex; flex-direction: column; background: #e5ddd5; position: relative; }
         #chat-frame { width: 100%; height: 100%; border: none; }
         .placeholder { display: flex; align-items: center; justify-content: center; height: 100%; color: #64748b; }
-        
+
         @media (max-width: 768px) {
             #sidebar { width: 100%; }
             #main-chat { position: absolute; top: 0; left: 100%; width: 100%; height: 100%; z-index: 100; transition: left 0.3s; }
@@ -96,8 +101,8 @@
                     <option value="instagram">Instagram</option>
                     <option value="imovelweb">Imovelweb</option>
                     <option value="vivareal">Vivareal</option>
-<option value="lead4sales">Lead4Sales</option>
-<option value="chavesnamao">Chaves na Mão</option>
+                    <option value="lead4sales">Lead4Sales</option>
+                    <option value="chavesnamao">Chaves na Mão</option>
                 </select>
                 <select id="filterStatus" class="filter-select">
                     <option value="todos">Status</option>
@@ -105,11 +110,17 @@
                     <option value="enviado">CRM</option>
                 </select>
             </div>
-            <div style="padding: 15px; background: #fff; margin-bottom: 10px; text-align: center; border-bottom: 1px solid #ddd;">
-    <button onclick="dispararVarreduraManual()" style="background: #28a745; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; margin-right: 10px;">🚀 Atualizar Imóveis</button>
-    <button onclick="pararVarreduraManual()" style="background: #dc3545; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold;">🛑 Parar Atualização/button>
-</div>
-            <button id="btnReengajamento" class="btn-reengajamento" onclick="iniciarReengajamentoLote()">
+            
+            <!-- Botões de Controle de Atualização / Varredura -->
+            <button class="btn-acao btn-atualizar" onclick="dispararVarreduraManual()">
+                🚀 Atualizar Imóveis
+            </button>
+            <button class="btn-acao btn-parar" onclick="pararVarreduraManual()">
+                🛑 Parar Atualização
+            </button>
+            
+            <!-- Botão de Reengajamento -->
+            <button id="btnReengajamento" class="btn-acao btn-reengajamento" onclick="iniciarReengajamentoLote()">
                 🚀 Disparar Reengajamento (7 dias)
             </button>
         </div>
@@ -119,35 +130,33 @@
         <div id="placeholder" class="placeholder">Selecione um lead</div>
         <iframe id="chat-frame" style="display:none;"></iframe>
     </div>
-<script>
-    const tokenAcesso = "SEU_TOKEN_AQUI"; // Será substituído automaticamente pelo token do ambiente
 
-    async function dispararVarreduraManual() {
-        if (!confirm("Deseja iniciar a varredura de proprietários agora?")) return;
-        try {
-            const res = await fetch(`/iniciar-ciclo-recadastro?token=${tokenAcesso}`, { method: 'POST' });
-            const texto = await res.text();
-            alert(texto);
-        } catch (e) {
-            alert("Erro ao disparar varredura.");
-        }
-    }
-
-    async function pararVarreduraManual() {
-        if (!confirm("Deseja pausar/parar a varredura automática?")) return;
-        try {
-            const res = await fetch(`/parar-ciclo-recadastro?token=${tokenAcesso}`, { method: 'POST' });
-            const texto = await res.text();
-            alert(texto);
-        } catch (e) {
-            alert("Erro ao pausar varredura.");
-        }
-    }
-</script>
     <script>
         const token = "SEU_TOKEN_AQUI"; 
         const container = document.getElementById('leads-container');
-        let listaGlobalDeLeads = []; // Memória para conseguirmos recarregar a tela
+        let listaGlobalDeLeads = []; 
+
+        async function dispararVarreduraManual() {
+            if (!confirm("Deseja iniciar a varredura de proprietários agora?")) return;
+            try {
+                const res = await fetch(`/iniciar-ciclo-recadastro?token=${token}`, { method: 'POST' });
+                const texto = await res.text();
+                alert(texto);
+            } catch (e) {
+                alert("Erro ao disparar varredura.");
+            }
+        }
+
+        async function pararVarreduraManual() {
+            if (!confirm("Deseja pausar/parar a varredura automática?")) return;
+            try {
+                const res = await fetch(`/parar-ciclo-recadastro?token=${token}`, { method: 'POST' });
+                const texto = await res.text();
+                alert(texto);
+            } catch (e) {
+                alert("Erro ao pausar varredura.");
+            }
+        }
 
         // --- FUNÇÃO PARA BUSCAR OS DADOS NO SERVIDOR ---
         function carregarDadosIniciais() {
@@ -171,7 +180,7 @@
                 const nome = (l.nome || "").toLowerCase();
                 const int = l.categoria === 'captacao' ? 'captacao' : (l.purpose === 'rent' ? 'aluguel' : 'compra');
                 const ori = (l.origem || "").toLowerCase();
-                
+
                 return (nome.includes(query) || l.sender.includes(query)) &&
                        (intFilter === 'todos' || int === intFilter) &&
                        (oriFilter === 'todos' || ori.includes(oriFilter)) &&
@@ -179,13 +188,12 @@
             }).forEach(lead => {
                 const date = new Date(lead.ultimaInteracao).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
                 const int = lead.categoria === 'captacao' ? 'Captação' : (lead.purpose === 'rent' ? 'Aluguel' : 'Compra');
-                
+
                 const card = document.createElement('div');
                 card.className = lead.statusUrgente ? 'card urgente' : 'card';
-                
+
                 const tagUrgente = lead.statusUrgente ? `<span class="tag tag-urgente">🚨 URGENTE</span>` : '';
-                
-                // Note o evento onclick repassando a variável de urgência
+
                 card.innerHTML = `
                     <div onclick="abrirChat('${lead.sender}', ${!!lead.statusUrgente})">
                         <div class="tag-group">
@@ -206,25 +214,23 @@
         };
 
         ['searchInput', 'filterInteresse', 'filterOrigem', 'filterStatus'].forEach(id => document.getElementById(id).addEventListener('input', renderLeads));
-        
+
         // Carrega a tela pela primeira vez
         carregarDadosIniciais();
 
         // --- FUNÇÃO PARA ABRIR O CHAT E LIMPAR URGÊNCIA ---
         window.abrirChat = (sender, isUrgente) => {
-            // Abre o visual do chat
             document.getElementById('placeholder').style.display = 'none';
             const frame = document.getElementById('chat-frame');
             frame.style.display = 'block';
             frame.src = `/chat/${sender}?token=${token}`;
             if(window.innerWidth <= 768) document.getElementById('main-chat').classList.add('mobile-active');
 
-            // Se o card for vermelho, dispara a remoção silenciosa no servidor
             if (isUrgente) {
                 fetch(`/remover-urgencia/${sender}?token=${token}`, { method: 'POST' })
                     .then(() => {
-                        localStorage.removeItem(`notificado_${sender}`); // Limpa cache da notificação
-                        carregarDadosIniciais(); // Recarrega os leads para o card ficar normal
+                        localStorage.removeItem(`notificado_${sender}`); 
+                        carregarDadosIniciais(); 
                     })
                     .catch(err => console.error("Erro ao limpar urgência:", err));
             }
@@ -264,16 +270,15 @@
 
         let leadsConhecidos = 0;
 
-        // Loop de verificação a cada 30 segundos
         setInterval(() => {
             fetch(`/leads?token=${token}`)
                 .then(res => res.json())
                 .then(data => {
                     const leadsUrgentes = data.filter(l => l.statusUrgente);
-                    
+
                     if (data.length !== leadsConhecidos) {
                         leadsConhecidos = data.length;
-                        listaGlobalDeLeads = data; // Atualiza a memória
+                        listaGlobalDeLeads = data; 
                         renderLeads(); 
                     }
 
