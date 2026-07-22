@@ -1072,7 +1072,7 @@ app.post('/webhook', async (req, res) => {
     res.sendStatus(200);
 });
 
-// --- ROTA WEBHOOK LEADS4SALES ---
+// --- ROTA WEBHOOK LEADS4SALES (ATUALIZADA) ---
 app.post('/webhook-leads4sales', async (req, res) => {
     try {
         const data = req.body;
@@ -1099,8 +1099,13 @@ app.post('/webhook-leads4sales', async (req, res) => {
         atualizarIndiceLeads(celular, nome, 'lead4sales', false, idDefinitivo);
         let conversa = obterHistorico(celular);
         
-        if (conversa.length === 0) {
-            let contextoOculto = `DADOS TÉCNICOS: Novo lead vindo do Leads4Sales.\nNome: ${nome}\nMensagem: "${mensagemPortal}"\nID do Imóvel: ${idDefinitivo}\n`;
+        // Verifica se é um histórico totalmente novo OU se o último imóvel consultado é diferente deste
+        const imoveisDoLead = leadsIndex[celular]?.imoveisInteresse || [];
+        const ultimoImovelDoLead = imoveisDoLead.length > 1 ? imoveisDoLead[imoveisDoLead.length - 2] : null;
+        const ehImovelNovo = !conversa.length || (idDefinitivo && ultimoImovelDoLead !== idDefinitivo);
+
+        if (ehImovelNovo) {
+            let contextoOculto = `DADOS TÉCNICOS PARA CONSULTA INTERNA DA SHEILA: Novo interesse do lead no portal Leads4Sales.\nNome: ${nome}\nMensagem: "${mensagemPortal}"\nID do Imóvel Novo: ${idDefinitivo}\n`;
             if (imovel) {
                 const precos = obterPrecosFormatados(imovel);
                 contextoOculto += `Dados: Venda ${precos.venda}, Locação ${precos.locacao}, Endereço permitido: ${obterEnderecoSeguro(imovel)}.`;
@@ -1110,10 +1115,18 @@ app.post('/webhook-leads4sales', async (req, res) => {
             const textoTemplate = `Olá ${nome}, recebemos sua solicitação para o imóvel: ${linkImovel}.`;
             conversa.push({ role: "model", parts: [{ text: textoTemplate }] });
             salvarHistorico(celular, conversa);
+            
             await enviarTemplateLead(celular, nome, linkImovel);
+            console.log(`LOG_DEBUG: Template Leads4Sales enviado com sucesso para ${nome} (${celular}) sobre o imóvel ${idDefinitivo}`);
+        } else {
+            console.log(`LOG_DEBUG: Lead Leads4Sales (${celular}) já foi atendido para este mesmo imóvel.`);
         }
-    } catch (error) { if (!res.headersSent) res.status(500).json({ error: "Erro interno no servidor" }); }
+    } catch (error) { 
+        console.error("ERRO no webhook Leads4Sales:", error.message);
+        if (!res.headersSent) res.status(500).json({ error: "Erro interno no servidor" }); 
+    }
 });
+
 
 app.post('/webhook-imovelweb', async (req, res) => {
     res.status(200).send('Webhook recebido com sucesso');
