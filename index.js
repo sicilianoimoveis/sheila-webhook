@@ -856,18 +856,20 @@ app.post('/webhook', async (req, res) => {
 
                     console.log(`✅ Imóvel ${id_imovel} atualizado no CRM com sucesso (Status e Preço corrigidos)!`);
                     
-                    // Limpa o estado de proprietário para encerrar o ciclo
+                   // Limpa o estado de proprietário para encerrar o ciclo
                     if (leadsIndex[sender]) {
                         leadsIndex[sender].isProprietario = false;
                         fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
                     }
 
-                    // Pede para a Sheila agradecer
-                    conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: O sistema foi atualizado com sucesso (Status: ${status}, Valor: R$${valor_atualizado}). Agradeça ao proprietário pela atenção e encerre o atendimento educadamente.` }] });
+                    // --- NOVO COMANDO: FORÇA A IA A RESPONDER APENAS COM TEXTO ---
+                    conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: A atualização no sistema foi CONCLUÍDA com sucesso (Status: ${status}, Valor: R$${valor_atualizado}). A instrução de chamar a função JÁ FOI CUMPRIDA! AGORA, APENAS escreva uma mensagem de texto humana e natural agradecendo ao proprietário. É ESTRITAMENTE PROIBIDO escrever código, chaves ou blocos JSON nesta resposta.` }] });
 
                 } catch (errorUpdate) {
                     console.error("❌ Erro ao atualizar imóvel no CRM:", errorUpdate.response?.data || errorUpdate.message);
-                    conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: Houve uma falha sistêmica ao tentar salvar. Agradeça ao cliente pela informação e diga que seus dados já foram anotados.` }] });
+                    
+                    // --- NOVO COMANDO DE ERRO: FORÇA TEXTO ---
+                    conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: Houve uma falha sistêmica ao tentar salvar, mas a instrução de chamar a função já foi cumprida. AGORA, APENAS escreva uma mensagem de texto natural agradecendo ao cliente pela informação. É ESTRITAMENTE PROIBIDO escrever código, chaves ou blocos JSON nesta resposta.` }] });
                 }
 
                 // Gera a mensagem final da Sheila
