@@ -281,8 +281,15 @@ async function iniciarVarreduraRecadastramentoAutomatica() {
 
     console.log(`📋 Total de imóveis desatualizados no CRM elegíveis para recadastro: ${imoveisParaDisparar.length}`);
 
-    // 3. FLUXO DE DISPARO HUMANIZADO
+   // 3. FLUXO DE DISPARO HUMANIZADO
     for (let i = 0; i < imoveisParaDisparar.length; i++) {
+        
+        // 🚨 TRAVA DE INTERRUPÇÃO IMEDIATA (BOTÃO PARAR ATUALIZAÇÃO) 🚨
+        if (process.env.PAUSAR_RECADASTRO === 'true') {
+            console.log("🛑 Loop de varredura interrompido imediatamente pelo botão Parar Atualização da Central!");
+            break; 
+        }
+
         const idImovel = imoveisParaDisparar[i];
         
         try {
@@ -290,20 +297,23 @@ async function iniciarVarreduraRecadastramentoAutomatica() {
             
             await processarDisparoRecadastramento(idImovel);
 
-            // Grava a data atual no JSON local para acionar a trava anti-spam (passo 1)
-            recadastroIndex[idImovel] = {
-                ultimaDataDisparo: agora.toISOString()
-            };
+            // Grava a data atual no JSON local (Trava do Imóvel)
+            recadastroIndex[idImovel] = { ultimaDataDisparo: agora.toISOString() };
             await fs.promises.writeFile(RECADASTRO_INDEX_PATH, JSON.stringify(recadastroIndex, null, 2));
 
             console.log(`✅ Recadastramento do imóvel ${idImovel} enviado com sucesso.`);
 
         } catch (erro) {
             console.error(`❌ Erro ao recadastrar imóvel ${idImovel}:`, erro.message);
+            // Se o erro foi proposital para evitar spam ao mesmo cliente, marcamos o imóvel como "processado" para não insistir amanhã
+            if (erro.message.includes("spam")) {
+                recadastroIndex[idImovel] = { ultimaDataDisparo: agora.toISOString() };
+                await fs.promises.writeFile(RECADASTRO_INDEX_PATH, JSON.stringify(recadastroIndex, null, 2)).catch(console.error);
+            }
         }
 
-        // Respeita a regra de envio natural do WhatsApp para evitar bloqueio da Meta
-        if (i < imoveisParaDisparar.length - 1) {
+        // Respeita o atraso apenas se não estiver pausado
+        if (i < imoveisParaDisparar.length - 1 && process.env.PAUSAR_RECADASTRO !== 'true') {
             const tempoDeEsperaMs = gerarAtrasoAleatorio(4, 8);
             const minutos = (tempoDeEsperaMs / 1000 / 60).toFixed(1);
             console.log(`⏳ Aguardando ${minutos} minutos antes de disparar para o próximo proprietário...`);
@@ -328,7 +338,21 @@ async function processarDisparoRecadastramento(id_imovel) {
         sender = `55${sender}`;
     }
 
+    // 🚨 TRAVA ANTI-SPAM POR CLIENTE (Bloqueia repetições do mesmo dono) 🚨
+    const ultimoContatoDono = recadastroIndex[sender]?.ultimaDataDisparo;
+    if (ultimoContatoDono) {
+        const diasDesdeUltimoDono = (new Date() - new Date(ultimoContatoDono)) / (1000 * 60 * 60 * 24);
+        if (diasDesdeUltimoDono < 45) {
+            console.log(`⚠️ Proprietário ${sender} já notificado há ${diasDesdeUltimoDono.toFixed(1)} dias. Pulando para não gerar spam.`);
+            throw new Error("Evitando spam para o mesmo cliente.");
+        }
+    }
+    
+    // Registra que esse cliente recebeu mensagem na varredura de hoje
+    recadastroIndex[sender] = { ultimaDataDisparo: new Date().toISOString() };
+
     const endereco = obterEnderecoSeguro(imovelXML);
+    // ... (o resto da função continua exatamente igual)
     const precos = obterPrecosFormatados(imovelXML);
     const tipoNegocioTexto = precos.pVenda > 0 ? "venda" : "locação";
 
@@ -782,7 +806,7 @@ app.post('/webhook', async (req, res) => {
                 { "name": "registrar_reclamacao", "description": "Uso para relatar mau atendimento.", "parameters": { "type": "object", "properties": { "motivo": { "type": "string" } }, "required": ["motivo"] } },
                 { "name": "registrar_nome", "description": "Salvar nome. Não usar durante Passo 3.", "parameters": { "type": "object", "properties": { "nome": { "type": "string" } }, "required": ["nome"] } },
                 { "name": "iniciar_captacao", "description": "Vender, alugar próprio imóvel.", "parameters": { "type": "object", "properties": {}, "required": [] } },
-                { "name": "processar_captacao", "description": "Registrar endereço e intenção (venda/aluguel) para captar o imóvel do cliente.", "parameters": { "type": "object", "properties": { "endereco": { "type": "string" }, "intencao": { "type": "string", "description": "venda ou locação" } }, "required": ["endereco", "intencao"] } },
+                { "name": "processar_captacao", "description": "Registrar nome, endereço e intenção (venda/aluguel) para captar imóvel.", "parameters": { "type": "object", "properties": { "nome": { "type": "string", "description": "Nome do cliente" }, "endereco": { "type": "string" }, "intencao": { "type": "string", "description": "Venda ou Locação" } }, "required": ["nome", "endereco", "intencao"] } },
                 { "name": "buscar_imovel", "description": "Consulta dados por código/URL.", "parameters": { "type": "object", "properties": { "termo_de_busca": { "type": "string" } }, "required": ["termo_de_busca"] } },
                 {
                     "name": "buscar_imoveis_filtros",
@@ -812,14 +836,14 @@ app.post('/webhook', async (req, res) => {
         if (functionCall) {
             console.log("LOG_DEBUG: A Sheila chamou a função:", functionCall.name);
 
-            if (functionCall.name === "iniciar_captacao") {
+           if (functionCall.name === "iniciar_captacao") {
                 if (!leadsIndex[sender]) atualizarIndiceLeads(sender, null, "WhatsApp"); 
                 leadsIndex[sender].categoria = 'captacao';
                 leadsIndex[sender].ultimaInteracao = new Date().toISOString();
                 fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
                 
-                // Em vez de uma frase fixa, passamos uma instrução para a IA gerar a pergunta:
-                conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: O fluxo de captação foi iniciado. Peça ao cliente o endereço completo do imóvel. Importante: CASO ele não tenha dito se quer VENDER ou ALUGAR, pergunte a intenção dele também.` }] });
+                // NOVO PROMPT INTELIGENTE PARA CAPTAÇÃO
+                conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: O fluxo de captação foi iniciado. Peça ao cliente em uma única mensagem natural: 1) O nome dele (se você ainda não souber); 2) O endereço completo do imóvel; 3) Se a intenção é VENDER ou ALUGAR o imóvel.` }] });
                 
                 const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
                 let texto = limparTextoIA(respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text);
@@ -941,21 +965,25 @@ app.post('/webhook', async (req, res) => {
                     salvarHistorico(sender, conversa);
                 }
             }
-            else if (functionCall.name === "processar_captacao") {
-                const { endereco, intencao } = functionCall.args;
+           else if (functionCall.name === "processar_captacao") {
+                // AGORA ELA RECEBE NOME, ENDEREÇO E INTENÇÃO
+                const { nome, endereco, intencao } = functionCall.args;
+                
+                // Salva o nome definitivo no leadsIndex
+                atualizarIndiceLeads(sender, nome, "WhatsApp");
                 
                 leadsIndex[sender].categoria = 'processado'; 
                 leadsIndex[sender].ultimaInteracao = new Date().toISOString();
                 fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
                 
-                // --- NOVO: ENVIO DOS DADOS DA CAPTAÇÃO PARA O CRM ---
+                // ENVIA PARA O CRM COM NOME E INTENÇÃO CORRETOS
                 await enviarLeadParaCRM(sender, { 
+                    nome: nome,
                     interesse: intencao, 
                     mensagem: "Captação de Novo Imóvel", 
                     observacoes: `🏠 Captação Solicitada\nIntenção: ${intencao}\nEndereço: ${endereco}` 
                 });
 
-                // Confirmação para o cliente
                 const resposta = "Perfeito, já anotei o endereço e a sua intenção! Passei todas as informações para nossa equipe de captação, que entrará em contato com você em breve.";
                 await enviarMensagem(sender, resposta);
                 conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
