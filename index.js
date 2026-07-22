@@ -736,6 +736,12 @@ app.post('/webhook', async (req, res) => {
     if (!msgData) return res.sendStatus(200);
 
     const sender = msgData.from;
+    // --- NOVA TRAVA: SE O LEAD ESTIVER PAUSADO MANUALMENTE NA CENTRAL, IGNORA A MENSAGEM ---
+    if (leadsIndex[sender] && leadsIndex[sender].pausado) {
+        console.log(`LOG_DEBUG: Mensagem de ${sender} ignorada. IA pausada para este contato.`);
+        return res.sendStatus(200); 
+    }
+
     const nomeMeta = req.body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile?.name;
 
     console.log(`\n========================================`);
@@ -1361,6 +1367,26 @@ app.post('/remover-urgencia/:sender', async (req, res) => {
     }
     res.status(200).send("Lead não urgente.");
 });
+
+app.post('/pausar-ia-lead/:sender', async (req, res) => {
+    const { sender } = req.params;
+    if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) return res.status(403).send("Acesso negado.");
+    
+    if (!leadsIndex[sender]) {
+        return res.status(404).send("Lead não encontrado.");
+    }
+
+    // Alterna entre true e false
+    leadsIndex[sender].pausado = !leadsIndex[sender].pausado;
+    
+    try {
+        await fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2));
+        res.status(200).send(`IA ${leadsIndex[sender].pausado ? 'pausada' : 'reativada'} para este lead.`);
+    } catch (error) {
+        res.status(500).send("Erro ao salvar o status.");
+    }
+});
+
 
 async function monitorarLeads() {
     const agora = new Date();
