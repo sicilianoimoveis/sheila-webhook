@@ -345,16 +345,19 @@ async function processarDisparoRecadastramento(id_imovel) {
 
 async function gerarTokenSigafy() {
     try {
+        console.log("LOG_DEBUG: Tentando autenticar na Sigafy com o usuário:", process.env.SIGAFY_USER);
         const response = await axios.post("https://projetos.sigafy.com.br/api/v1/auth", {
-            email: process.env.SIGAFY_EMAIL,
+            email: process.env.SIGAFY_USER,
             password: process.env.SIGAFY_PASSWORD
         });
+        console.log("✅ Token Sigafy gerado com sucesso!");
         return response.data.token || response.data.access_token;
     } catch (error) {
-        console.error("Erro ao gerar token Sigafy:", error.message);
+        console.error("❌ Erro detalhado ao gerar token Sigafy:", error.response?.status, error.response?.data || error.message);
         return null;
     }
 }
+
 
 async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
     try {
