@@ -782,7 +782,7 @@ app.post('/webhook', async (req, res) => {
                 { "name": "registrar_reclamacao", "description": "Uso para relatar mau atendimento.", "parameters": { "type": "object", "properties": { "motivo": { "type": "string" } }, "required": ["motivo"] } },
                 { "name": "registrar_nome", "description": "Salvar nome. Não usar durante Passo 3.", "parameters": { "type": "object", "properties": { "nome": { "type": "string" } }, "required": ["nome"] } },
                 { "name": "iniciar_captacao", "description": "Vender, alugar próprio imóvel.", "parameters": { "type": "object", "properties": {}, "required": [] } },
-                { "name": "processar_captacao", "description": "Registrar endereço para captação.", "parameters": { "type": "object", "properties": { "endereco": { "type": "string" } }, "required": ["endereco"] } },
+                { "name": "processar_captacao", "description": "Registrar endereço e intenção (venda/aluguel) para captar o imóvel do cliente.", "parameters": { "type": "object", "properties": { "endereco": { "type": "string" }, "intencao": { "type": "string", "description": "venda ou locação" } }, "required": ["endereco", "intencao"] } },
                 { "name": "buscar_imovel", "description": "Consulta dados por código/URL.", "parameters": { "type": "object", "properties": { "termo_de_busca": { "type": "string" } }, "required": ["termo_de_busca"] } },
                 {
                     "name": "buscar_imoveis_filtros",
@@ -818,10 +818,17 @@ app.post('/webhook', async (req, res) => {
                 leadsIndex[sender].ultimaInteracao = new Date().toISOString();
                 fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
                 
-                const resposta = "Entendido! Para que nossa equipe de captação avalie seu imóvel, qual o endereço completo dele?";
-                await enviarMensagem(sender, resposta);
-                conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
-                salvarHistorico(sender, conversa);
+                // Em vez de uma frase fixa, passamos uma instrução para a IA gerar a pergunta:
+                conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: O fluxo de captação foi iniciado. Peça ao cliente o endereço completo do imóvel. Importante: CASO ele não tenha dito se quer VENDER ou ALUGAR, pergunte a intenção dele também.` }] });
+                
+                const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
+                let texto = limparTextoIA(respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text);
+                
+                if (texto) {
+                    await enviarMensagem(sender, texto);
+                    conversa.push({ "role": "model", "parts": [{ "text": texto }] });
+                    salvarHistorico(sender, conversa);
+                }
             }
            else if (functionCall.name === "atualizar_status_imovel_crm") {
                 const { id_imovel, lock, status, valor_atualizado, tipo_negocio } = functionCall.args;
@@ -935,14 +942,25 @@ app.post('/webhook', async (req, res) => {
                 }
             }
             else if (functionCall.name === "processar_captacao") {
+                const { endereco, intencao } = functionCall.args;
+                
                 leadsIndex[sender].categoria = 'processado'; 
                 leadsIndex[sender].ultimaInteracao = new Date().toISOString();
                 fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
-                const resposta = "Perfeito, anotei o endereço! Vou passar essas informações para nossa equipe.";
+                
+                // --- NOVO: ENVIO DOS DADOS DA CAPTAÇÃO PARA O CRM ---
+                await enviarLeadParaCRM(sender, { 
+                    interesse: intencao, 
+                    mensagem: "Captação de Novo Imóvel", 
+                    observacoes: `🏠 Captação Solicitada\nIntenção: ${intencao}\nEndereço: ${endereco}` 
+                });
+
+                // Confirmação para o cliente
+                const resposta = "Perfeito, já anotei o endereço e a sua intenção! Passei todas as informações para nossa equipe de captação, que entrará em contato com você em breve.";
                 await enviarMensagem(sender, resposta);
                 conversa.push({ "role": "model", "parts": [{ "text": resposta }] });
                 salvarHistorico(sender, conversa);
-            }      
+            }
             else if (functionCall.name === "qualificar_lead") {
                 const nomeDoCliente = functionCall.args.nome || "Cliente";
                 const idsExtraidos = functionCall.args.ids_imoveis || []; 
