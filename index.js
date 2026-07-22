@@ -1225,6 +1225,31 @@ app.post('/webhook-lead', async (req, res) => {
     } catch (error) { res.status(500).send("Erro"); }
 });
 
+// --- ROTA PARA PARAR / PAUSAR A VARREDURA ---
+app.post('/parar-ciclo-recadastro', async (req, res) => {
+    if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) { 
+        return res.status(403).send("Acesso negado."); 
+    }
+    
+    // Ativa a trava de segurança globalmente na memória do processo
+    process.env.PAUSAR_RECADASTRO = 'true';
+    
+    console.log("🛑 Varredura de proprietários pausada manualmente através da Central.");
+    res.status(200).send("Varredura pausada com sucesso.");
+});
+
+// --- ROTA PARA RETOMAR A VARREDURA ---
+app.post('/retomar-ciclo-recadastro', async (req, res) => {
+    if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) { 
+        return res.status(403).send("Acesso negado."); 
+    }
+    
+    process.env.PAUSAR_RECADASTRO = 'false';
+    
+    console.log("▶️ Varredura de proprietários retomada manualmente através da Central.");
+    res.status(200).send("Varredura retomada com sucesso.");
+});
+
 app.get('/central', basicAuth, (req, res) => {
     const caminhoHtml = path.join(__dirname, 'central.html');
     fs.readFile(caminhoHtml, 'utf8', (err, data) => {
