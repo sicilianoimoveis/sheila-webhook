@@ -566,7 +566,7 @@ app.get('/chat/:sender', (req, res) => {
         const txt = m.parts && m.parts[0] ? m.parts[0].text : (m.text || "");
         return txt && 
                !txt.includes("DADOS TÉCNICOS PARA CONSULTA") && 
-               !txt.includes("INFORMAÇÃO INTERNA DA SHEILA") && 
+               !txt.includes("INFORMAÇÃO INTERNA") && // <-- PEGA QUALQUER MENSAGEM INTERNA
                !txt.includes("CONSULTA DE IMÓVEL") && 
                !txt.includes("O nome deste cliente é");
     });
@@ -589,7 +589,7 @@ app.get('/chat/:sender', (req, res) => {
     <div class="lead-info">
         <strong>Cliente:</strong> ${nomeLead}<br>
         <small>${sender}</small><br>
-        <a href="https://wa.me/${sender}" target="_blank" style="color:#075e54; font-weight:bold; text-decoration:none;">📱 Enviar WhatsApp direto</a>
+        <a href="https://wa.me/${sender}" target="_blank" style="color:#075e54; font-weight:bold; text-decoration:none;">Enviar WhatsApp direto</a>
     </div>
     ${mensagensFiltradas.map(m => {
         const text = m.parts && m.parts[0] ? m.parts[0].text : (m.text || "");
