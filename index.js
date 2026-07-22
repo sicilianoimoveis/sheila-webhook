@@ -1115,41 +1115,66 @@ app.post('/webhook-leads4sales', async (req, res) => {
     } catch (error) { if (!res.headersSent) res.status(500).json({ error: "Erro interno no servidor" }); }
 });
 
-// --- ROTA WEBHOOK IMOVELWEB ---
+// --- NOVA ROTA: WEBHOOK DO IMOVELWEB (ROBUSTA) ---
 app.post('/webhook-imovelweb', async (req, res) => {
     res.status(200).send('Webhook recebido com sucesso');
+
     try {
         const data = req.body;
-        if (data.eventType !== 'CONTACTO_MENSAJE' && data.eventType !== 'CONTACTO') return;
+        console.log("LOG_DEBUG: Body recebido do Imóvelweb:", JSON.stringify(data, null, 2));
 
-        const nome = data.name || 'Cliente';
-        const telefoneBruto = data.phone || "";
-        const referencia = data.internalReference || "";
-        const mensagemPortal = data.message || 'Gostaria de informações sobre este imóvel.';
+        // 1. Extração segura mapeando todas as variações possíveis da API do Imóvelweb
+        const nome = data.name || data.nombre || data.contactName || 'Cliente';
+        const telefoneBruto = data.phone || data.telefono || data.cellphone || "";
+        
+        // Pega a referência interna do imóvel (ID)
+        const referencia = data.internalReference || data.listingId || data.propertyId || "";
+        const mensagemPortal = data.message || data.comentario || 'Gostaria de informações sobre este imóvel.';
 
-        if (!telefoneBruto) return;
+        if (!telefoneBruto) {
+            console.log("LOG_DEBUG: Lead do Imovelweb recebido sem telefone. Abortando.");
+            return;
+        }
+
+        // 2. Limpeza do Telefone
         const celular = telefoneBruto.replace(/\D/g, '');
+
+        // 3. Inteligência de Link
         const imovel = cacheImoveis.find(i => String(i.ListingID) === String(referencia));
         const linkImovel = imovel ? imovel.DetailViewUrl : `https://sicilianoimoveis.com.br/imovel/${referencia}`;
 
+        // 4. Atualiza o cadastro do Lead com a origem correta
         atualizarIndiceLeads(celular, nome, 'imovelweb', false, referencia);
+
         let conversa = obterHistorico(celular);
         
+        // 5. Abordagem Ativa (Dispara se for a primeira vez)
         if (conversa.length === 0) {
-            let contextoOculto = `DADOS TÉCNICOS: Novo lead do Imovelweb.\nNome: ${nome}\nMensagem: "${mensagemPortal}"\nID: ${referencia}\n`;
+            let contextoOculto = `DADOS TÉCNICOS PARA CONSULTA INTERNA DA SHEILA: Novo lead vindo do portal Imovelweb.\nNome do cliente: ${nome}\nMensagem que ele deixou no portal: "${mensagemPortal}"\nID do Imóvel: ${referencia}\n`;
+            
             if (imovel) {
                 const precos = obterPrecosFormatados(imovel);
-                contextoOculto += `Dados: Venda ${precos.venda}, Locação ${precos.locacao}, Endereço permitido: ${obterEnderecoSeguro(imovel)}.`;
+                contextoOculto += `Dados do imóvel de interesse: Venda ${precos.venda}, Locação ${precos.locacao}, Endereço permitido: ${obterEnderecoSeguro(imovel)}.`;
             }
+
             conversa.push({ role: "user", parts: [{ text: contextoOculto }] });
+            
             const textoTemplate = `Olá ${nome}, recebemos sua solicitação para o imóvel: ${linkImovel}.`;
             conversa.push({ role: "model", parts: [{ text: textoTemplate }] });
+            
             salvarHistorico(celular, conversa);
-            await enviarTemplateLead(celular, nome, linkImovel);
-        }
-    } catch (error) {}
-});
 
+            await enviarTemplateLead(celular, nome, linkImovel);
+            
+            console.log(`LOG_DEBUG: Novo Lead Imovelweb processado com sucesso! Nome: ${nome} | Imóvel: ${referencia}`);
+        } else {
+            console.log(`LOG_DEBUG: Lead Imovelweb (${celular}) já possui histórico.`);
+        }
+
+    } catch (error) {
+        console.error("ERRO ao processar webhook do Imovelweb:", error.message);
+    }
+});
 app.post('/webhook-lead', async (req, res) => {
     const { name, phone, building_id, origin_desc } = req.body;
     const celular = phone ? phone.replace(/\D/g, '') : null;
