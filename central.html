@@ -26,7 +26,7 @@
         body { font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; min-height: 100vh; background-color: var(--bg-body); }
 
         #sidebar { width: 380px; background: var(--bg-sidebar); border-right: 1px solid #cbd5e1; display: flex; flex-direction: column; min-height: 100vh; box-sizing: border-box; }
-        
+
         header { padding: 15px; text-align: center; background: var(--bg-sidebar); border-bottom: 1px solid #cbd5e1; }
         header img { width: 100px; }
 
@@ -54,28 +54,39 @@
         .btn-acao:hover { background-color: #2563eb; }
         .btn-acao:disabled { background-color: #94a3b8; cursor: not-allowed; }
 
-        #leads-container { flex: 1; padding: 15px; box-sizing: border-box; }
+        #leads-container { flex: 1; padding: 15px; box-sizing: border-box; overflow-y: auto;}
 
-        .card { background: var(--bg-card); padding: 16px; margin-bottom: 12px; border-radius: 8px; border-left: 5px solid #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.1); cursor: pointer; transition: 0.2s; }
+        .card { background: var(--bg-card); padding: 16px; margin-bottom: 12px; border-radius: 8px; border-left: 5px solid #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: 0.2s; }
         .card:hover { border-left-color: var(--primary); }
         .card.urgente { border-left-color: #ef4444; background-color: #fef2f2; }
         .card.urgente h3 { color: #dc2626; }
+        
+        .tag-group { display: flex; gap: 5px; margin-bottom: 8px; }
+        .tag { padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; background: #e2e8f0; text-transform: uppercase; }
         .tag.tag-urgente { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; }
+        
+        .card-content { cursor: pointer; }
         .card h3 { margin: 0 0 4px 0; color: var(--primary); font-size: 15px; }
-        .tag-group { display: flex; gap: 5px; margin-bottom: 5px; }
-        .tag { padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; background: #e2e8f0; text-transform: uppercase; }
         .card p { margin: 2px 0; font-size: 12px; color: #555; }
         .date { font-size: 10px; color: #94a3b8; display: block; margin-top: 6px; }
-        .btn-crm { margin-top: 10px; width: 100%; padding: 8px; border: none; border-radius: 4px; cursor: pointer; color: white; font-weight: bold; font-size: 12px; }
+        
+        .btn-row { display: flex; gap: 8px; margin-top: 12px; }
+        .btn-crm { flex: 1; padding: 8px; border: none; border-radius: 4px; cursor: pointer; color: white; font-weight: bold; font-size: 11px; }
 
         #main-chat { flex: 1; display: flex; flex-direction: column; background: #e5ddd5; position: relative; height: 100vh; }
-        #chat-frame { width: 100%; height: 100%; border: none; }
+        
+        /* Cabeçalho nativo para Mobile */
+        #mobile-header { display: none; background: #ffffff; padding: 12px 15px; border-bottom: 1px solid #ddd; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        #mobile-header button { background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: bold; font-size: 14px; cursor: pointer; }
+
+        #chat-frame { width: 100%; flex: 1; border: none; }
         .placeholder { display: flex; align-items: center; justify-content: center; height: 100%; color: #64748b; }
 
         @media (max-width: 768px) {
             #sidebar { width: 100%; min-height: 100vh; }
-            #main-chat { position: absolute; top: 0; left: 100%; width: 100%; height: 100%; z-index: 100; transition: left 0.3s; }
+            #main-chat { position: fixed; top: 0; left: 100%; width: 100%; height: 100vh; z-index: 100; transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
             #main-chat.mobile-active { left: 0; }
+            #mobile-header { display: flex; align-items: center; }
         }
     </style>
 </head>
@@ -90,40 +101,37 @@
                     <option value="compra">Compra</option>
                     <option value="aluguel">Aluguel</option>
                     <option value="captacao">Captação</option>
+                    <option value="atualizacao">Atualização</option>
                 </select>
                 <select id="filterOrigem" class="filter-select">
                     <option value="todos">Origem</option>
                     <option value="whatsapp">WhatsApp</option>
-                    <option value="instagram">Instagram</option>
                     <option value="imovelweb">Imovelweb</option>
                     <option value="vivareal">Vivareal</option>
                     <option value="lead4sales">Lead4Sales</option>
-                    <option value="chavesnamao">Chaves na Mão</option>
+                    <option value="proprietario">Proprietário</option>
                 </select>
                 <select id="filterStatus" class="filter-select">
                     <option value="todos">Status</option>
-                    <option value="pendente">Pendente</option>
-                    <option value="enviado">CRM</option>
+                    <option value="pendente">Pendente CRM</option>
+                    <option value="enviado">Enviado CRM</option>
                 </select>
             </div>
-            
-            <button class="btn-acao" onclick="dispararVarreduraManual()">
-                🚀 Atualizar Imóveis
-            </button>
-            <button class="btn-acao" onclick="retomarVarreduraManual()">
-                ▶️ Retomar Atualização
-            </button>
-            <button class="btn-acao" onclick="pararVarreduraManual()">
-                🛑 Parar Atualização
-            </button>
-            <button id="btnReengajamento" class="btn-acao" onclick="iniciarReengajamentoLote()">
-                🚀 Disparar Reengajamento (7 dias)
-            </button>
+
+            <button class="btn-acao" onclick="dispararVarreduraManual()">🚀 Atualizar Imóveis</button>
+            <button class="btn-acao" onclick="retomarVarreduraManual()">▶️ Retomar Atualização</button>
+            <button class="btn-acao" style="background-color: #ef4444;" onclick="pararVarreduraManual()">🛑 Parar Atualização</button>
+            <button id="btnReengajamento" class="btn-acao" style="background-color: #8b5cf6;" onclick="iniciarReengajamentoLote()">🚀 Disparar Reengajamento</button>
         </div>
         <div id="leads-container"></div>
     </div>
+    
     <div id="main-chat">
-        <div id="placeholder" class="placeholder">Selecione um lead</div>
+        <!-- Botão Voltar exclusivo do Mobile -->
+        <div id="mobile-header">
+            <button onclick="fecharChat()">⬅ Voltar para a lista</button>
+        </div>
+        <div id="placeholder" class="placeholder">Selecione um lead para iniciar</div>
         <iframe id="chat-frame" style="display:none;"></iframe>
     </div>
 
@@ -136,33 +144,24 @@
             if (!confirm("Deseja iniciar a varredura de proprietários agora?")) return;
             try {
                 const res = await fetch(`/iniciar-ciclo-recadastro?token=${token}`, { method: 'POST' });
-                const texto = await res.text();
-                alert(texto);
-            } catch (e) {
-                alert("Erro ao disparar varredura.");
-            }
+                alert(await res.text());
+            } catch (e) { alert("Erro ao disparar varredura."); }
         }
 
         async function retomarVarreduraManual() {
             if (!confirm("Deseja retomar a varredura automática?")) return;
             try {
                 const res = await fetch(`/retomar-ciclo-recadastro?token=${token}`, { method: 'POST' });
-                const texto = await res.text();
-                alert(texto);
-            } catch (e) {
-                alert("Erro ao retomar varredura.");
-            }
+                alert(await res.text());
+            } catch (e) { alert("Erro ao retomar varredura."); }
         }
 
         async function pararVarreduraManual() {
             if (!confirm("Deseja pausar/parar a varredura automática?")) return;
             try {
                 const res = await fetch(`/parar-ciclo-recadastro?token=${token}`, { method: 'POST' });
-                const texto = await res.text();
-                alert(texto);
-            } catch (e) {
-                alert("Erro ao pausar varredura.");
-            }
+                alert(await res.text());
+            } catch (e) { alert("Erro ao pausar varredura."); }
         }
 
         function carregarDadosIniciais() {
@@ -183,7 +182,8 @@
             container.innerHTML = '';
             listaGlobalDeLeads.filter(l => {
                 const nome = (l.nome || "").toLowerCase();
-                const int = l.categoria === 'captacao' ? 'captacao' : (l.purpose === 'rent' ? 'aluguel' : 'compra');
+                let int = l.categoria === 'captacao' ? 'captacao' : (l.purpose === 'rent' ? 'aluguel' : 'compra');
+                if (l.isProprietario) int = 'atualizacao';
                 const ori = (l.origem || "").toLowerCase();
 
                 return (nome.includes(query) || l.sender.includes(query)) &&
@@ -192,7 +192,20 @@
                        (statFilter === 'todos' || (statFilter === 'enviado' ? l.enviadoParaCRM : !l.enviadoParaCRM));
             }).forEach(lead => {
                 const date = new Date(lead.ultimaInteracao).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
-                const int = lead.categoria === 'captacao' ? 'Captação' : (lead.purpose === 'rent' ? 'Aluguel' : 'Compra');
+                
+                // --- LÓGICA DAS TAGS ---
+                let intTexto = lead.categoria === 'captacao' ? 'Captação' : (lead.purpose === 'rent' ? 'Aluguel' : 'Compra');
+                let corFundoInt = '#e2e8f0'; // Cinza Padrão
+                
+                if (lead.isProprietario) {
+                    intTexto = 'Atualização';
+                    corFundoInt = '#fef08a'; // Amarelo para destacar Recadastramento
+                }
+
+                // --- LÓGICA DO BOTÃO PAUSAR IA ---
+                const isPausado = lead.pausado === true;
+                const txtBotaoPausa = isPausado ? '▶️ Retomar IA' : '⏸️ Pausar IA';
+                const corBotaoPausa = isPausado ? '#10b981' : '#64748b'; // Verde se pausado, Cinza se ativa
 
                 const card = document.createElement('div');
                 card.className = lead.statusUrgente ? 'card urgente' : 'card';
@@ -200,25 +213,33 @@
                 const tagUrgente = lead.statusUrgente ? `<span class="tag tag-urgente">🚨 URGENTE</span>` : '';
 
                 card.innerHTML = `
-                    <div onclick="abrirChat('${lead.sender}', ${!!lead.statusUrgente})">
+                    <div class="card-content" onclick="abrirChat('${lead.sender}', ${!!lead.statusUrgente})">
                         <div class="tag-group">
-                            <span class="tag">${int}</span>
+                            <span class="tag" style="background: ${corFundoInt};">${intTexto}</span>
                             <span class="tag" style="background:#dbeafe">${lead.origem}</span>
                             ${tagUrgente}
+                            ${isPausado ? '<span class="tag" style="background:#fee2e2; color:#dc2626;">IA PAUSADA</span>' : ''}
                         </div>
                         <h3>${lead.nome}</h3>
                         <p style="font-size: 11px">Tel: ${lead.sender}</p>
-                        <span class="date">Última: ${date}</span>
+                        <span class="date">Última interção: ${date}</span>
                     </div>
-                    <button class="btn-crm" style="background:${lead.enviadoParaCRM ? '#28a745' : '#e67e22'}" onclick="enviarParaCRM('${lead.sender}')">
-                        ${lead.enviadoParaCRM ? '✓ Enviado CRM' : 'Enviar ao CRM'}
-                    </button>
+                    
+                    <div class="btn-row">
+                        <button class="btn-crm" style="background:${lead.enviadoParaCRM ? '#28a745' : '#e67e22'}" onclick="enviarParaCRM('${lead.sender}')">
+                            ${lead.enviadoParaCRM ? '✓ Enviado CRM' : 'Enviar CRM'}
+                        </button>
+                        <button class="btn-crm" style="background:${corBotaoPausa}" onclick="alternarPausaIA('${lead.sender}', ${isPausado})">
+                            ${txtBotaoPausa}
+                        </button>
+                    </div>
                 `;
                 container.appendChild(card);
             });
         };
 
-        ['searchInput', 'filterInteresse', 'filterOrigem', 'filterStatus'].forEach(id => document.getElementById(id).addEventListener('input', renderLeads));
+        ['searchInput', 'filterInteresse', 'filterOrigem', 'filterStatus'].forEach(id => document.getElementById(id).addEventListener('change', renderLeads));
+        document.getElementById('searchInput').addEventListener('input', renderLeads);
 
         carregarDadosIniciais();
 
@@ -227,16 +248,23 @@
             const frame = document.getElementById('chat-frame');
             frame.style.display = 'block';
             frame.src = `/chat/${sender}?token=${token}`;
-            if(window.innerWidth <= 768) document.getElementById('main-chat').classList.add('mobile-active');
+            
+            // Lógica para Mobile
+            if(window.innerWidth <= 768) {
+                document.getElementById('main-chat').classList.add('mobile-active');
+                window.scrollTo(0, 0); // CORREÇÃO 2: Joga a tela pro topo!
+            }
 
             if (isUrgente) {
                 fetch(`/remover-urgencia/${sender}?token=${token}`, { method: 'POST' })
-                    .then(() => {
-                        localStorage.removeItem(`notificado_${sender}`); 
-                        carregarDadosIniciais(); 
-                    })
-                    .catch(err => console.error("Erro ao limpar urgência:", err));
+                    .then(() => carregarDadosIniciais())
+                    .catch(err => console.error(err));
             }
+        };
+
+        // CORREÇÃO 1: Botão Voltar Nativo no HTML para fechar o chat no celular
+        window.fecharChat = () => {
+            document.getElementById('main-chat').classList.remove('mobile-active');
         };
 
         function enviarParaCRM(sender) {
@@ -244,23 +272,32 @@
             .then(res => res.text()).then(msg => { alert(msg); carregarDadosIniciais(); });
         }
 
+        // CORREÇÃO 4: Função para Pausar a Sheila em um Lead Específico
+        window.alternarPausaIA = async (sender, estaPausado) => {
+            const acao = estaPausado ? 'reativar' : 'pausar';
+            if (!confirm(`Deseja ${acao} a Inteligência Artificial para este contato?`)) return;
+            
+            try {
+                await fetch(`/pausar-ia-lead/${sender}?token=${token}`, { method: 'POST' });
+                carregarDadosIniciais(); // Recarrega a tela para atualizar o botão
+            } catch (erro) {
+                alert("Erro ao alterar o status da IA.");
+            }
+        };
+
         function iniciarReengajamentoLote() {
             const btn = document.getElementById('btnReengajamento');
-            const confirma = confirm("Atenção: Isso iniciará a varredura e o disparo do modelo 'rengajamento7' para os leads aptos. A rotina rodará em segundo plano (1 mensagem a cada 4~8 minutos). Deseja continuar?");
-            if (!confirma) return;
+            if (!confirm("Atenção: Isso disparará mensagens de reengajamento. Deseja continuar?")) return;
 
             btn.disabled = true;
             btn.innerHTML = '⏳ Disparo em Andamento...';
 
             fetch(`/disparar-reengajamento?token=${token}`, { method: 'POST' })
-                .then(res => res.text())
-                .then(msg => {
-                    alert("✅ Comando enviado! Acompanhe o progresso pelo terminal do seu servidor.");
-                })
-                .catch(erro => {
-                    alert("❌ Erro de comunicação com o servidor: " + erro);
+                .then(() => alert("✅ Comando enviado!"))
+                .catch(() => {
+                    alert("❌ Erro ao comunicar com o servidor.");
                     btn.disabled = false;
-                    btn.innerHTML = '🚀 Disparar Reengajamento (7 dias)';
+                    btn.innerHTML = '🚀 Disparar Reengajamento';
                 });
         }
     </script>
