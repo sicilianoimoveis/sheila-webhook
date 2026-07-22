@@ -901,7 +901,7 @@ app.post('/webhook', async (req, res) => {
                     await enviarMensagem(sender, texto);
                     conversa.push({ "role": "model", "parts": [{ "text": texto }] });
                     await new Promise(resolve => setTimeout(resolve, 1500)); 
-                    const msgAvaliacao = "Ah, e se estiver satisfeito, avalie-nos no Google:\nhttps://search.google.com/local/writereview?placeid=ChIJ_w2xUXjfmwAR3DnuGUi-5hQ";
+                    const msgAvaliacao = "Se você gostou do meu atendimento,poderia deixar uma avaliação clicando no link abaixo? Ajuda muito o nosso trabalho! Google:\nhttps://search.google.com/local/writereview?placeid=ChIJ_w2xUXjfmwAR3DnuGUi-5hQ";
                     await enviarMensagem(sender, msgAvaliacao);
                     conversa.push({ "role": "model", "parts": [{ "text": msgAvaliacao }] });
                     salvarHistorico(sender, conversa);
