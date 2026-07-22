@@ -763,7 +763,7 @@ app.post('/webhook', async (req, res) => {
 
         // --- TRAVA DE PÓS-ATENDIMENTO (EVITA A IA FALAR DEMAIS DEPOIS QUE ACABOU) ---
         if (leadsIndex[sender]?.enviadoParaCRM && !leadsIndex[sender]?.isProprietario) {
-            conversa.push({ "role": "user", "parts": [{ "text": "INFORMAÇÃO INTERNA DA SHEILA: O atendimento deste cliente já foi concluído e os dados enviados ao CRM. Apenas seja educada, curta e NÃO FAÇA NENHUMA PERGUNTA NOVA. Se o cliente apenas disse 'ok' ou 'obrigado', despeça-se." }] });
+            conversa.push({ "role": "user", "parts": [{ "text": "INFORMAÇÃO INTERNA DA SHEILA: O atendimento deste cliente já foi concluído e os dados enviados ao CRM. Apenas seja educada, curta e NÃO FAÇA NENHUMA PERGUNTA NOVA. Se o cliente apenas disse 'ok' ou 'obrigado', despeça-se educadamente." }] });
         }
 
         let promptDinamico = "";
