@@ -566,7 +566,20 @@ async function enviarLeadParaCRM(sender, contexto, idsImoveis = []) {
     let alertaSeguro = "";
     if (lead.dadosSeguro) { alertaSeguro = `\n\n🛡️ [SEGURO FIANÇA PRÉ-COTADO] 🛡️\nO cliente já forneceu dados (CPF: ${lead.dadosSeguro.cpf}). Status API Sigafy: ${lead.dadosSeguro.status}.\n`; }
 
-    const payload = { name: contexto.nome || lead.nome || "Cliente", email: contexto.email || lead.email || null, phone: sender.replace(/\D/g, ''), purpose: purposeStr, origin_id: codigoOrigem, origin: lead.origem || "WhatsApp", message: contexto.mensagem || "Atendimento inicial", notes: (contexto.observacoes || "") + notasAdicionais + alertaSeguro };
+    // --- SOLUÇÃO GLOBAL DO LINK DA CONVERSA ---
+    const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
+    const observacoesFinais = (contexto.observacoes || "") + notasAdicionais + alertaSeguro + `\n\n🔗 Link Histórico da Sheila: ${linkEspelho}`;
+
+    const payload = { 
+        name: contexto.nome || lead.nome || "Cliente", 
+        email: contexto.email || lead.email || null, 
+        phone: sender.replace(/\D/g, ''), 
+        purpose: purposeStr, 
+        origin_id: codigoOrigem, 
+        origin: lead.origem || "WhatsApp", 
+        message: contexto.mensagem || "Atendimento inicial", 
+        notes: observacoesFinais 
+    };
     if (id_imovel) { payload.building_id = parseInt(id_imovel); }
 
     try {
@@ -758,6 +771,11 @@ app.post('/webhook', async (req, res) => {
     try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${process.env.GEMINI_API_KEY}`;
         conversa.push({ "role": "user", "parts": [{ "text": textoCliente }] });
+
+        // --- TRAVA DE PÓS-ATENDIMENTO (EVITA A IA FALAR DEMAIS DEPOIS QUE ACABOU) ---
+        if (leadsIndex[sender]?.enviadoParaCRM && !leadsIndex[sender]?.isProprietario) {
+            conversa.push({ "role": "user", "parts": [{ "text": "INFORMAÇÃO INTERNA DA SHEILA: O atendimento deste cliente já foi concluído e os dados enviados ao CRM. Apenas seja educada, curta e NÃO FAÇA NENHUMA PERGUNTA NOVA. Se o cliente apenas disse 'ok' ou 'obrigado', despeça-se educadamente." }] });
+        }
 
         let promptDinamico = "";
 
@@ -965,8 +983,7 @@ app.post('/webhook', async (req, res) => {
                     salvarHistorico(sender, conversa);
                 }
             }
-          else if (functionCall.name === "processar_captacao") {
-                // Captação agora exige nome, endereço e intenção
+         else if (functionCall.name === "processar_captacao") {
                 const { nome, endereco, intencao } = functionCall.args;
                 
                 atualizarIndiceLeads(sender, nome, "WhatsApp");
@@ -975,15 +992,11 @@ app.post('/webhook', async (req, res) => {
                 leadsIndex[sender].ultimaInteracao = new Date().toISOString();
                 fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
                 
-                // GERA A URL DA CONVERSA PARA O CRM
-                const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
-
-                // ENVIA TUDO PARA O CRM
                 await enviarLeadParaCRM(sender, { 
                     nome: nome,
                     interesse: intencao, 
                     mensagem: "Captação de Novo Imóvel", 
-                    observacoes: `🏠 Captação Solicitada\nIntenção: ${intencao}\nEndereço: ${endereco}\nLink da conversa: ${linkEspelho}` 
+                    observacoes: `🏠 Captação Solicitada\nIntenção: ${intencao}\nEndereço: ${endereco}` 
                 });
 
                 const resposta = "Perfeito, já anotei o endereço e a sua intenção! Passei todas as informações para nossa equipe de captação, que entrará em contato com você em breve.";
@@ -995,13 +1008,12 @@ app.post('/webhook', async (req, res) => {
                 let nomeDoCliente = functionCall.args.nome;
                 const nomeAtual = leadsIndex[sender]?.nome;
                 
-                // 1. Verifica se a IA tentou mandar pro CRM sem saber o nome
                 const nomeInvalido = !nomeDoCliente || nomeDoCliente.toLowerCase() === "cliente" || nomeDoCliente.toLowerCase() === "não informado";
                 const nomeAtualInvalido = !nomeAtual || nomeAtual === "Lead Sem Nome" || nomeAtual === "Cliente";
 
                 if (nomeInvalido && nomeAtualInvalido) {
                     console.log(`LOG_DEBUG: Interceptando qualificar_lead. O nome do cliente ainda é desconhecido.`);
-                    const aviso = "INFORMAÇÃO INTERNA DA SHEILA: Você tentou encaminhar o cliente para o corretor (qualificar_lead), mas AINDA NÃO PERGUNTOU O NOME DELE. Pare agora e pergunte APENAS o nome do cliente educadamente.";
+                    const aviso = "INFORMAÇÃO INTERNA DA SHEILA: Você tentou encaminhar o cliente para o corretor, mas AINDA NÃO PERGUNTOU O NOME DELE. Pare agora e pergunte APENAS o nome do cliente educadamente.";
                     conversa.push({ "role": "user", "parts": [{ "text": aviso }] });
                     
                     const respCorrecao = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
@@ -1011,25 +1023,20 @@ app.post('/webhook', async (req, res) => {
                         conversa.push({ "role": "model", "parts": [{ "text": textoCorrecao }] });
                         salvarHistorico(sender, conversa);
                     }
-                    return res.sendStatus(200); // Para a execução aqui
+                    return res.sendStatus(200); 
                 }
 
-                // 2. Se chegou aqui, temos um nome válido. Ajusta a variável final:
                 if (nomeInvalido && !nomeAtualInvalido) {
-                    nomeDoCliente = nomeAtual; // Usa o nome que já tínhamos salvo no cache
+                    nomeDoCliente = nomeAtual; 
                 }
 
                 const idsExtraidos = functionCall.args.ids_imoveis || []; 
                 atualizarIndiceLeads(sender, nomeDoCliente);
 
-                // GERA A URL DA CONVERSA PARA O CRM
-                const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
-
-                // ENVIA PARA O CRM COM A URL NO FIM
                 await enviarLeadParaCRM(sender, { 
                     interesse: functionCall.args.interesse, 
                     mensagem: "Atendimento realizado", 
-                    observacoes: `Resumo: ${functionCall.args.interesse}\nLink da conversa: ${linkEspelho}` 
+                    observacoes: `Resumo: ${functionCall.args.interesse}` 
                 }, idsExtraidos);
 
                 const msg1 = "Perfeito, acabei de encaminhar seu interesse para nossa equipe de corretores! ✨";
@@ -1037,7 +1044,7 @@ app.post('/webhook', async (req, res) => {
                 conversa.push({ "role": "model", "parts": [{ "text": msg1 }] });
                 await new Promise(resolve => setTimeout(resolve, 1500));
                 
-                const msg2 = "Se você gostou do meu atendimento,poderia deixar uma avaliação clicando no link abaixo? Ajuda muito o nosso trabalho! Google:\nhttps://search.google.com/local/writereview?placeid=ChIJ_w2xUXjfmwAR3DnuGUi-5hQ";
+                const msg2 = "Se você gostou do meu atendimento, poderia deixar uma avaliação clicando no link abaixo? Ajuda muito o nosso trabalho! Google:\nhttps://search.google.com/local/writereview?placeid=ChIJ_w2xUXjfmwAR3DnuGUi-5hQ";
                 await enviarMensagem(sender, msg2);
                 conversa.push({ "role": "model", "parts": [{ "text": msg2 }] });
                 salvarHistorico(sender, conversa); 
