@@ -1115,7 +1115,6 @@ app.post('/webhook-leads4sales', async (req, res) => {
     } catch (error) { if (!res.headersSent) res.status(500).json({ error: "Erro interno no servidor" }); }
 });
 
-// --- NOVA ROTA: WEBHOOK DO IMOVELWEB (ROBUSTA) ---
 app.post('/webhook-imovelweb', async (req, res) => {
     res.status(200).send('Webhook recebido com sucesso');
 
@@ -1123,52 +1122,44 @@ app.post('/webhook-imovelweb', async (req, res) => {
         const data = req.body;
         console.log("LOG_DEBUG: Body recebido do Imóvelweb:", JSON.stringify(data, null, 2));
 
-        // 1. Extração segura mapeando todas as variações possíveis da API do Imóvelweb
         const nome = data.name || data.nombre || data.contactName || 'Cliente';
         const telefoneBruto = data.phone || data.telefono || data.cellphone || "";
-        
-        // Pega a referência interna do imóvel (ID)
         const referencia = data.internalReference || data.listingId || data.propertyId || "";
         const mensagemPortal = data.message || data.comentario || 'Gostaria de informações sobre este imóvel.';
 
-        if (!telefoneBruto) {
-            console.log("LOG_DEBUG: Lead do Imovelweb recebido sem telefone. Abortando.");
-            return;
-        }
-
-        // 2. Limpeza do Telefone
+        if (!telefoneBruto) return;
         const celular = telefoneBruto.replace(/\D/g, '');
 
-        // 3. Inteligência de Link
         const imovel = cacheImoveis.find(i => String(i.ListingID) === String(referencia));
         const linkImovel = imovel ? imovel.DetailViewUrl : `https://sicilianoimoveis.com.br/imovel/${referencia}`;
 
-        // 4. Atualiza o cadastro do Lead com a origem correta
+        // Atualiza ou cria o índice do lead, garantindo que o novo imóvel entre na lista de interesse
         atualizarIndiceLeads(celular, nome, 'imovelweb', false, referencia);
-
         let conversa = obterHistorico(celular);
-        
-        // 5. Abordagem Ativa (Dispara se for a primeira vez)
-        if (conversa.length === 0) {
-            let contextoOculto = `DADOS TÉCNICOS PARA CONSULTA INTERNA DA SHEILA: Novo lead vindo do portal Imovelweb.\nNome do cliente: ${nome}\nMensagem que ele deixou no portal: "${mensagemPortal}"\nID do Imóvel: ${referencia}\n`;
+
+        // Verifica se é um histórico totalmente novo OU se o último imóvel consultado é diferente deste
+        const ultimoImovelDoLead = leadsIndex[celular]?.imoveisInteresse?.[leadsIndex[celular].imoveisInteresse.length - 2];
+        const ehImovelNovo = !conversa.length || (referencia && ultimoImovelDoLead !== referencia);
+
+        if (ehImovelNovo) {
+            let contextoOculto = `DADOS TÉCNICOS PARA CONSULTA INTERNA DA SHEILA: Novo interesse do lead no portal Imovelweb.\nNome: ${nome}\nMensagem: "${mensagemPortal}"\nID do Imóvel Novo: ${referencia}\n`;
             
             if (imovel) {
                 const precos = obterPrecosFormatados(imovel);
-                contextoOculto += `Dados do imóvel de interesse: Venda ${precos.venda}, Locação ${precos.locacao}, Endereço permitido: ${obterEnderecoSeguro(imovel)}.`;
+                contextoOculto += `Dados: Venda ${precos.venda}, Locação ${precos.locacao}, Endereço: ${obterEnderecoSeguro(imovel)}.`;
             }
 
             conversa.push({ role: "user", parts: [{ text: contextoOculto }] });
-            
-            const textoTemplate = `Olá ${nome}, recebemos sua solicitação para o imóvel: ${linkImovel}.`;
+            const textoTemplate = `Olá ${nome}, recebemos sua solicitação para o novo imóvel: ${linkImovel}.`;
             conversa.push({ role: "model", parts: [{ text: textoTemplate }] });
             
             salvarHistorico(celular, conversa);
 
+            // Dispara o template independentemente de ter histórico antigo
             await enviarTemplateLead(celular, nome, linkImovel);
-            
-            console.log(`LOG_DEBUG: Novo Lead Imovelweb processado com sucesso! Nome: ${nome} | Imóvel: ${referencia}`);
+            console.log(`LOG_DEBUG: Template enviado com sucesso para ${nome} (${celular}) sobre o imóvel ${referencia}`);
         } else {
-            console.log(`LOG_DEBUG: Lead Imovelweb (${celular}) já possui histórico.`);
+            console.log(`LOG_DEBUG: Lead ${celular} já foi atendido para este mesmo imóvel.`);
         }
 
     } catch (error) {
