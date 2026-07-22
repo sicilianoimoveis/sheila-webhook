@@ -908,7 +908,7 @@ app.post('/webhook', async (req, res) => {
 
                 await enviarLeadParaCRM(sender, { nome: dadosCliente.nome, email: dadosCliente.email, purpose: "rent", interesse: "aluguel", mensagem: "Atendimento iniciado", observacoes: "Seguro acionado" }, [dadosCliente.id_imovel]);
 
-                let instrucao = "INFORMAÇÃO INTERNA DA SHEILA: A pré-análise foi concluída. REGRA ESTRITA: NÃO INFORME NENHUM VALOR DE SEGURO AO CLIENTE. Diga que a pré-análise deu certo.";
+                let instrucao = "INFORMAÇÃO INTERNA DA SHEILA: A pré-análise foi concluída. REGRA ESTRITA: NÃO INFORME NENHUM VALOR DE SEGURO AO CLIENTE. Diga que a pré-análise foi enviada.";
                 conversa.push({ "role": "user", "parts": [{ "text": instrucao }] });
                 const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
                 let texto = limparTextoIA(respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text);
