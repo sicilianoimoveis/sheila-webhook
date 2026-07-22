@@ -105,7 +105,10 @@
                     <option value="enviado">CRM</option>
                 </select>
             </div>
-            
+            <div style="padding: 15px; background: #fff; margin-bottom: 10px; text-align: center; border-bottom: 1px solid #ddd;">
+    <button onclick="dispararVarreduraManual()" style="background: #28a745; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; margin-right: 10px;">🚀 Atualizar Imóveis</button>
+    <button onclick="pararVarreduraManual()" style="background: #dc3545; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold;">🛑 Parar Atualização/button>
+</div>
             <button id="btnReengajamento" class="btn-reengajamento" onclick="iniciarReengajamentoLote()">
                 🚀 Disparar Reengajamento (7 dias)
             </button>
@@ -116,7 +119,31 @@
         <div id="placeholder" class="placeholder">Selecione um lead</div>
         <iframe id="chat-frame" style="display:none;"></iframe>
     </div>
+<script>
+    const tokenAcesso = "SEU_TOKEN_AQUI"; // Será substituído automaticamente pelo token do ambiente
 
+    async function dispararVarreduraManual() {
+        if (!confirm("Deseja iniciar a varredura de proprietários agora?")) return;
+        try {
+            const res = await fetch(`/iniciar-ciclo-recadastro?token=${tokenAcesso}`, { method: 'POST' });
+            const texto = await res.text();
+            alert(texto);
+        } catch (e) {
+            alert("Erro ao disparar varredura.");
+        }
+    }
+
+    async function pararVarreduraManual() {
+        if (!confirm("Deseja pausar/parar a varredura automática?")) return;
+        try {
+            const res = await fetch(`/parar-ciclo-recadastro?token=${tokenAcesso}`, { method: 'POST' });
+            const texto = await res.text();
+            alert(texto);
+        } catch (e) {
+            alert("Erro ao pausar varredura.");
+        }
+    }
+</script>
     <script>
         const token = "SEU_TOKEN_AQUI"; 
         const container = document.getElementById('leads-container');
