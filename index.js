@@ -70,10 +70,20 @@ function limparTextoIA(texto) {
         limpo = limpo.replace(regex, "");
     });
 
-    // 2. Remove blocos JSON crus e formatações de código (```json)
-    limpo = limpo.replace(/```json[\s\S]*?```/gi, "");
-    limpo = limpo.replace(/```[\s\S]*?```/g, "");
-    limpo = limpo.replace(/\{[\s\S]*"funcao"[\s\S]*\}/gi, "");
+    // 2. Remove blocos de código markdown (```json ... ```)
+    limpo = limpo.replace(/```(?:json)?[\s\S]*?```/gi, "");
+
+    // 3. CAÇA-FANTASMA DE JSON: Captura e destrói qualquer bloco { ... } 
+    // que contenha as palavras-chave que a IA costuma alucinar.
+    const palavrasChaveJSON = ["funcao", "nome_funcao", "parametros", "id_imovel", "tipo_negocio"];
+    palavrasChaveJSON.forEach(palavra => {
+        // Regex procura por { seguido de qualquer coisa, a palavra-chave, e depois }
+        const regexJSON = new RegExp(`\\{[\\s\\S]*?"${palavra}"[\\s\\S]*?\\}`, "gi");
+        limpo = limpo.replace(regexJSON, "");
+    });
+
+    // 4. Limpeza final de espaços em branco duplos gerados pela remoção
+    limpo = limpo.replace(/\n\s*\n/g, '\n\n');
 
     return limpo.trim();
 }
