@@ -33,10 +33,12 @@
         .filter-group { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 8px; }
         .search-box, .filter-select { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; box-sizing: border-box; }
 
+        /* PADRÃO ÚNICO EM TOM AZUL PARA TODOS OS BOTÕES DE CONTROLE */
         .btn-acao {
             width: 100%;
             padding: 10px;
             margin-top: 10px;
+            background-color: #3b82f6; 
             color: white;
             border: none;
             border-radius: 6px;
@@ -49,14 +51,8 @@
             justify-content: center;
             gap: 8px;
         }
-        .btn-reengajamento { background-color: #3b82f6; }
-        .btn-reengajamento:hover { background-color: #2563eb; }
-        
-        .btn-atualizar { background-color: #28a745; }
-        .btn-atualizar:hover { background-color: #218838; }
-
-        .btn-parar { background-color: #dc3545; }
-        .btn-parar:hover { background-color: #c82333; }
+        .btn-acao:hover { background-color: #2563eb; }
+        .btn-acao:disabled { background-color: #94a3b8; cursor: not-allowed; }
 
         #leads-container { flex: 1; overflow-y: auto; padding: 15px; }
 
@@ -111,16 +107,19 @@
                 </select>
             </div>
             
-            <!-- Botões de Controle de Atualização / Varredura -->
-            <button class="btn-acao btn-atualizar" onclick="dispararVarreduraManual()">
+            <!-- Botões de Controle Padronizados em Azul -->
+            <button class="btn-acao" onclick="dispararVarreduraManual()">
                 🚀 Atualizar Imóveis
             </button>
-            <button class="btn-acao btn-parar" onclick="pararVarreduraManual()">
+            <button class="btn-acao" onclick="retomarVarreduraManual()">
+                ▶️ Retomar Atualização
+            </button>
+            <button class="btn-acao" onclick="pararVarreduraManual()">
                 🛑 Parar Atualização
             </button>
             
             <!-- Botão de Reengajamento -->
-            <button id="btnReengajamento" class="btn-acao btn-reengajamento" onclick="iniciarReengajamentoLote()">
+            <button id="btnReengajamento" class="btn-acao" onclick="iniciarReengajamentoLote()">
                 🚀 Disparar Reengajamento (7 dias)
             </button>
         </div>
@@ -144,6 +143,17 @@
                 alert(texto);
             } catch (e) {
                 alert("Erro ao disparar varredura.");
+            }
+        }
+
+        async function retomarVarreduraManual() {
+            if (!confirm("Deseja retomar a varredura automática?")) return;
+            try {
+                const res = await fetch(`/retomar-ciclo-recadastro?token=${token}`, { method: 'POST' });
+                const texto = await res.text();
+                alert(texto);
+            } catch (e) {
+                alert("Erro ao retomar varredura.");
             }
         }
 
