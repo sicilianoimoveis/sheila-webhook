@@ -342,6 +342,20 @@ async function processarDisparoRecadastramento(id_imovel) {
     
     salvarHistorico(sender, conversa);
 }
+
+async function gerarTokenSigafy() {
+    try {
+        const response = await axios.post("https://projetos.sigafy.com.br/api/v1/auth", {
+            email: process.env.SIGAFY_EMAIL,
+            password: process.env.SIGAFY_PASSWORD
+        });
+        return response.data.token || response.data.access_token;
+    } catch (error) {
+        console.error("Erro ao gerar token Sigafy:", error.message);
+        return null;
+    }
+}
+
 async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
     try {
         const token = await gerarTokenSigafy();
