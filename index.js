@@ -591,9 +591,9 @@ app.get('/chat/:sender', (req, res) => {
     let html = `<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body { font-family: sans-serif; background: #e5ddd5; margin: 0; padding: 0; }
-        .header { background: #fff; padding: 15px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); position: relative; }
-        .header img { width: 70px; height: auto; margin-bottom: 5px; }
-        .btn-voltar { position: absolute; left: 15px; top: 20px; background: #3b82f6; color: white; padding: 6px 12px; border-radius: 4px; text-decoration: none; font-size: 12px; font-weight: bold; }
+        .header { background: #ffffff; padding: 15px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); position: relative; display: flex; align-items: center; justify-content: center; min-height: 50px; }
+        .header img { width: 70px; height: auto; }
+        .btn-voltar { position: absolute; left: 12px; background: #3b82f6; color: white; padding: 8px 12px; border-radius: 6px; text-decoration: none; font-size: 12px; font-weight: bold; z-index: 10; }
         .lead-info { background: #fff; padding: 12px; text-align: center; margin-bottom: 10px; border-bottom: 1px solid #ddd; }
         .msg { padding: 10px 15px; margin: 8px 12px; border-radius: 8px; max-width: 75%; position: relative; font-size: 14px; word-wrap: break-word; box-shadow: 0 1px 1px rgba(0,0,0,0.1); line-height: 1.4; }
         .user { background: #dcf8c6; margin-left: auto; text-align: left; }
@@ -603,7 +603,6 @@ app.get('/chat/:sender', (req, res) => {
     <div class="header">
         <a href="javascript:history.back()" class="btn-voltar">⬅ Voltar</a>
         <img src="https://img.apre.me/M7UtVktPLcjSy00sSk8sKc7LVMhPz8-RL07NyUyzzVSztDQwtU0GAA.jpeg" alt="Logo">
-        <div style="font-weight:bold; color:#333; font-size: 14px;">Atendido pela Sheila</div>
     </div>
     <div class="lead-info">
         <strong>Cliente:</strong> ${nomeLead}<br>
@@ -621,6 +620,7 @@ app.get('/chat/:sender', (req, res) => {
 
     res.send(html);
 });
+
 
 app.get('/debug-imovel/:id_imovel', async (req, res) => {
     if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) return res.status(403).send("Acesso negado.");
