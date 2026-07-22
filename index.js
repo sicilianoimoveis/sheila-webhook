@@ -77,7 +77,6 @@ function limparTextoIA(texto) {
     // que contenha as palavras-chave que a IA costuma alucinar.
     const palavrasChaveJSON = ["funcao", "nome_funcao", "parametros", "id_imovel", "tipo_negocio"];
     palavrasChaveJSON.forEach(palavra => {
-        // Regex procura por { seguido de qualquer coisa, a palavra-chave, e depois }
         const regexJSON = new RegExp(`\\{[\\s\\S]*?"${palavra}"[\\s\\S]*?\\}`, "gi");
         limpo = limpo.replace(regexJSON, "");
     });
@@ -232,7 +231,6 @@ async function iniciarVarreduraRecadastramentoAutomatica() {
         const idImovel = String(imovel.ListingID);
         
         // 1. TRAVA ANTI-SPAM (Memória local do Bot)
-        // Evita mandar mensagem todo dia caso o proprietário ignore o contato
         const ultimoDisparoBot = recadastroIndex[idImovel]?.ultimaDataDisparo;
         if (ultimoDisparoBot) {
             const diasDesdeUltimoContato = (agora - new Date(ultimoDisparoBot)) / (1000 * 60 * 60 * 24);
@@ -250,7 +248,6 @@ async function iniciarVarreduraRecadastramentoAutomatica() {
                 }
             };
             
-            // Puxa os dados atualizados do imóvel
             const resCrm = await axios.get("https://api.apresenta.me/buildings", {
                 ...configCRM,
                 params: { "filter[id]": idImovel }
@@ -259,13 +256,11 @@ async function iniciarVarreduraRecadastramentoAutomatica() {
             const dadosImovelCrm = resCrm.data?.data?.[0];
             if (!dadosImovelCrm) continue;
 
-            // Puxa a data que você sugeriu (ou a de edição do cadastro como fallback)
             const dataAtualizacaoCrm = dadosImovelCrm.amount_updated_at || dadosImovelCrm.updated_at || dadosImovelCrm.created_at;
             
             if (dataAtualizacaoCrm) {
                 const diasDesatualizado = (agora - new Date(dataAtualizacaoCrm)) / (1000 * 60 * 60 * 24);
                 
-                // Se no CRM faz mais de 45 dias que ninguém altera o valor, entra na fila de envio
                 if (diasDesatualizado >= 45) {
                     imoveisParaDisparar.push(idImovel);
                 }
@@ -275,13 +270,12 @@ async function iniciarVarreduraRecadastramentoAutomatica() {
             console.error(`⚠️ Erro ao consultar a data do imóvel ${idImovel} no CRM:`, error.message);
         }
 
-        // Pausa de 500ms para não sobrecarregar e derrubar a API da Apresenta.me com várias consultas
         await sleep(500); 
     }
 
     console.log(`📋 Total de imóveis desatualizados no CRM elegíveis para recadastro: ${imoveisParaDisparar.length}`);
 
-   // 3. FLUXO DE DISPARO HUMANIZADO
+    // 3. FLUXO DE DISPARO HUMANIZADO
     for (let i = 0; i < imoveisParaDisparar.length; i++) {
         
         // 🚨 TRAVA DE INTERRUPÇÃO IMEDIATA (BOTÃO PARAR ATUALIZAÇÃO) 🚨
@@ -323,6 +317,7 @@ async function iniciarVarreduraRecadastramentoAutomatica() {
 
     console.log("🏁 Varredura de recadastramento de imóveis finalizada!");
 }
+
 async function processarDisparoRecadastramento(id_imovel) {
     const imovelXML = cacheImoveis.find(i => String(i.ListingID) === String(id_imovel));
     if (!imovelXML) throw new Error("Imóvel não encontrado no XML.");
@@ -352,7 +347,6 @@ async function processarDisparoRecadastramento(id_imovel) {
     recadastroIndex[sender] = { ultimaDataDisparo: new Date().toISOString() };
 
     const endereco = obterEnderecoSeguro(imovelXML);
-    // ... (o resto da função continua exatamente igual)
     const precos = obterPrecosFormatados(imovelXML);
     const tipoNegocioTexto = precos.pVenda > 0 ? "venda" : "locação";
 
@@ -391,7 +385,6 @@ async function gerarTokenSigafy() {
         return null;
     }
 }
-
 
 async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
     try {
@@ -668,7 +661,6 @@ app.get('/chat/:sender', (req, res) => {
     res.send(html);
 });
 
-
 app.get('/debug-imovel/:id_imovel', async (req, res) => {
     if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) return res.status(403).send("Acesso negado.");
     const { id_imovel } = req.params;
@@ -703,19 +695,16 @@ app.post('/iniciar-ciclo-recadastro', async (req, res) => {
 
 // --- ROTINA DE RECADASTRO COM TRAVA DE HORÁRIO COMERCIAL (EXCEÇÃO ATÉ 21H) ---
 setTimeout(() => {
-    // Roda a verificação a cada 1 hora (3600000 ms) para garantir o disparo no momento exato
     setInterval(async () => {
         if (process.env.PAUSAR_RECADASTRO === 'true') {
             console.log("⏸️ Varredura automática de proprietários está pausada por configuração.");
             return;
         }
 
-        // Converte a hora do servidor (Railway) para o horário de Brasília
         const dataServidor = new Date();
         const dataBrasilia = new Date(dataServidor.toLocaleString("en-US", {timeZone: "America/Sao_Paulo"}));
         const horaBrasilia = dataBrasilia.getHours();
 
-        // 🚨 EXCEÇÃO DE TESTE: Alterado de >= 20 para >= 21 para permitir rodar até as 20:59
         if (horaBrasilia < 9 || horaBrasilia >= 21) {
             console.log(`⏰ [${horaBrasilia}h - BRT] Fora do horário permitido. Varredura de proprietários aguardando...`);
             return;
@@ -726,7 +715,7 @@ setTimeout(() => {
         } catch (e) {
             console.error("Erro no ciclo de recadastro:", e.message);
         }
-    }, 3600000); // Roda a cada 1 hora
+    }, 3600000); 
 }, 60000);
 
 app.post('/disparar-reengajamento', async (req, res) => {
@@ -774,7 +763,7 @@ app.post('/webhook', async (req, res) => {
 
         // --- TRAVA DE PÓS-ATENDIMENTO (EVITA A IA FALAR DEMAIS DEPOIS QUE ACABOU) ---
         if (leadsIndex[sender]?.enviadoParaCRM && !leadsIndex[sender]?.isProprietario) {
-            conversa.push({ "role": "user", "parts": [{ "text": "INFORMAÇÃO INTERNA DA SHEILA: O atendimento deste cliente já foi concluído e os dados enviados ao CRM. Apenas seja educada, curta e NÃO FAÇA NENHUMA PERGUNTA NOVA. Se o cliente apenas disse 'ok' ou 'obrigado', despeça-se educadamente." }] });
+            conversa.push({ "role": "user", "parts": [{ "text": "INFORMAÇÃO INTERNA DA SHEILA: O atendimento deste cliente já foi concluído e os dados enviados ao CRM. Apenas seja educada, curta e NÃO FAÇA NENHUMA PERGUNTA NOVA. Se o cliente apenas disse 'ok' ou 'obrigado', despeça-se." }] });
         }
 
         let promptDinamico = "";
@@ -789,7 +778,6 @@ app.post('/webhook', async (req, res) => {
 
             console.log(`🔒 [MODO EXCLUSIVO PROPRIETÁRIO ATIVADO] Imóvel ID: ${idImovelProp}`);
 
-            // --- NOVO PROMPT: REGRA DE DOIS PASSOS (STATUS + VALOR) ---
             promptDinamico = `Você é a Sheila, assistente virtual da Siciliano Imóveis. 
             ATENÇÃO ABSOLUTA: Você está conversando com o PROPRIETÁRIO do imóvel ID ${idImovelProp}. 
             O imóvel está cadastrado para ${tipoNegocioTxt} (tipo_negocio: '${tipoNegocioCRM}') pelo valor atual de R$${valorNumProp}.
@@ -854,13 +842,12 @@ app.post('/webhook', async (req, res) => {
         if (functionCall) {
             console.log("LOG_DEBUG: A Sheila chamou a função:", functionCall.name);
 
-           if (functionCall.name === "iniciar_captacao") {
+            if (functionCall.name === "iniciar_captacao") {
                 if (!leadsIndex[sender]) atualizarIndiceLeads(sender, null, "WhatsApp"); 
                 leadsIndex[sender].categoria = 'captacao';
                 leadsIndex[sender].ultimaInteracao = new Date().toISOString();
                 fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
                 
-                // NOVO PROMPT INTELIGENTE PARA CAPTAÇÃO
                 conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: O fluxo de captação foi iniciado. Peça ao cliente em uma única mensagem natural: 1) O nome dele (se você ainda não souber); 2) O endereço completo do imóvel; 3) Se a intenção é VENDER ou ALUGAR o imóvel.` }] });
                 
                 const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
@@ -872,7 +859,7 @@ app.post('/webhook', async (req, res) => {
                     salvarHistorico(sender, conversa);
                 }
             }
-           else if (functionCall.name === "atualizar_status_imovel_crm") {
+            else if (functionCall.name === "atualizar_status_imovel_crm") {
                 const { id_imovel, lock, status, valor_atualizado, tipo_negocio } = functionCall.args;
                 console.log(`LOG_DEBUG: Atualizando Imóvel ${id_imovel} | Status: ${status} | Lock: ${lock} | Valor: ${valor_atualizado} | Tipo: ${tipo_negocio}`);
 
@@ -885,18 +872,16 @@ app.post('/webhook', async (req, res) => {
                 };
 
                 try {
-                    // 1. ATUALIZA O STATUS DO IMÓVEL (Sem tocar nos preços para não dar "Removida")
                     const urlBuilding = `https://api.apresenta.me/buildings/${id_imovel}`;
                     await axios.put(urlBuilding, {
                         lock: lock,
                         status: status
                     }, configCRM);
 
-                    // 2. ATUALIZA O PREÇO NO ENDPOINT ESPECÍFICO (Exatamente como o suporte pediu)
                     const urlPurpose = `https://api.apresenta.me/buildings/${id_imovel}/purposes`;
                     const payloadPurpose = {
-                        type: tipo_negocio, // "sale" ou "rent"
-                        currency: "BRL",    // O campo obrigatório que faltava
+                        type: tipo_negocio, 
+                        currency: "BRL",    
                         amount: valor_atualizado,
                         amount_max: valor_atualizado
                     };
@@ -905,27 +890,21 @@ app.post('/webhook', async (req, res) => {
 
                     console.log(`✅ Imóvel ${id_imovel} atualizado no CRM com sucesso (Status e Preço corrigidos)!`);
                     
-                   // Limpa o estado de proprietário para encerrar o ciclo
                     if (leadsIndex[sender]) {
                         leadsIndex[sender].isProprietario = false;
                         fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
                     }
 
-                    // --- NOVO COMANDO: FORÇA A IA A RESPONDER APENAS COM TEXTO ---
                     conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: A atualização no sistema foi CONCLUÍDA com sucesso (Status: ${status}, Valor: R$${valor_atualizado}). A instrução de chamar a função JÁ FOI CUMPRIDA! AGORA, APENAS escreva uma mensagem de texto humana e natural agradecendo ao proprietário. É ESTRITAMENTE PROIBIDO escrever código, chaves ou blocos JSON nesta resposta.` }] });
 
                 } catch (errorUpdate) {
                     console.error("❌ Erro ao atualizar imóvel no CRM:", errorUpdate.response?.data || errorUpdate.message);
-                    
-                    // --- NOVO COMANDO DE ERRO: FORÇA TEXTO ---
                     conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: Houve uma falha sistêmica ao tentar salvar, mas a instrução de chamar a função já foi cumprida. AGORA, APENAS escreva uma mensagem de texto natural agradecendo ao cliente pela informação. É ESTRITAMENTE PROIBIDO escrever código, chaves ou blocos JSON nesta resposta.` }] });
                 }
 
-                // Gera a mensagem final da Sheila
                 const promptFinal = typeof promptDinamico !== 'undefined' ? promptDinamico : process.env.SYSTEM_PROMPT;
                 const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": promptFinal }] }, "contents": conversa });
                 
-                // Passa a mensagem pela nova função de limpeza que bloqueia códigos JSON
                 let texto = limparTextoIA(respFinal.data?.candidates?.[0]?.content?.parts?.[0]?.text);
                 
                 if (texto) {
@@ -983,7 +962,7 @@ app.post('/webhook', async (req, res) => {
                     salvarHistorico(sender, conversa);
                 }
             }
-         else if (functionCall.name === "processar_captacao") {
+            else if (functionCall.name === "processar_captacao") {
                 const { nome, endereco, intencao } = functionCall.args;
                 
                 atualizarIndiceLeads(sender, nome, "WhatsApp");
@@ -1013,7 +992,7 @@ app.post('/webhook', async (req, res) => {
 
                 if (nomeInvalido && nomeAtualInvalido) {
                     console.log(`LOG_DEBUG: Interceptando qualificar_lead. O nome do cliente ainda é desconhecido.`);
-                    const aviso = "INFORMAÇÃO INTERNA DA SHEILA: Você tentou encaminhar o cliente para o corretor, mas AINDA NÃO PERGUNTOU O NOME DELE. Pare agora e pergunte APENAS o nome do cliente educadamente.";
+                    const aviso = "INFORMAÇÃO INTERNA DA SHEILA: Você tentou encaminhar o cliente para o corretor (qualificar_lead), mas AINDA NÃO PERGUNTOU O NOME DELE. Pare agora e pergunte APENAS o nome do cliente educadamente.";
                     conversa.push({ "role": "user", "parts": [{ "text": aviso }] });
                     
                     const respCorrecao = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": conversa });
@@ -1196,7 +1175,6 @@ app.post('/webhook', async (req, res) => {
     res.sendStatus(200);
 });
 
-// --- ROTA WEBHOOK LEADS4SALES (ATUALIZADA) ---
 app.post('/webhook-leads4sales', async (req, res) => {
     try {
         const data = req.body;
@@ -1223,7 +1201,6 @@ app.post('/webhook-leads4sales', async (req, res) => {
         atualizarIndiceLeads(celular, nome, 'lead4sales', false, idDefinitivo);
         let conversa = obterHistorico(celular);
         
-        // Verifica se é um histórico totalmente novo OU se o último imóvel consultado é diferente deste
         const imoveisDoLead = leadsIndex[celular]?.imoveisInteresse || [];
         const ultimoImovelDoLead = imoveisDoLead.length > 1 ? imoveisDoLead[imoveisDoLead.length - 2] : null;
         const ehImovelNovo = !conversa.length || (idDefinitivo && ultimoImovelDoLead !== idDefinitivo);
@@ -1251,7 +1228,6 @@ app.post('/webhook-leads4sales', async (req, res) => {
     }
 });
 
-
 app.post('/webhook-imovelweb', async (req, res) => {
     res.status(200).send('Webhook recebido com sucesso');
 
@@ -1270,11 +1246,9 @@ app.post('/webhook-imovelweb', async (req, res) => {
         const imovel = cacheImoveis.find(i => String(i.ListingID) === String(referencia));
         const linkImovel = imovel ? imovel.DetailViewUrl : `https://sicilianoimoveis.com.br/imovel/${referencia}`;
 
-        // Atualiza ou cria o índice do lead, garantindo que o novo imóvel entre na lista de interesse
         atualizarIndiceLeads(celular, nome, 'imovelweb', false, referencia);
         let conversa = obterHistorico(celular);
 
-        // Verifica se é um histórico totalmente novo OU se o último imóvel consultado é diferente deste
         const ultimoImovelDoLead = leadsIndex[celular]?.imoveisInteresse?.[leadsIndex[celular].imoveisInteresse.length - 2];
         const ehImovelNovo = !conversa.length || (referencia && ultimoImovelDoLead !== referencia);
 
@@ -1292,7 +1266,6 @@ app.post('/webhook-imovelweb', async (req, res) => {
             
             salvarHistorico(celular, conversa);
 
-            // Dispara o template independentemente de ter histórico antigo
             await enviarTemplateLead(celular, nome, linkImovel);
             console.log(`LOG_DEBUG: Template enviado com sucesso para ${nome} (${celular}) sobre o imóvel ${referencia}`);
         } else {
@@ -1303,6 +1276,7 @@ app.post('/webhook-imovelweb', async (req, res) => {
         console.error("ERRO ao processar webhook do Imovelweb:", error.message);
     }
 });
+
 app.post('/webhook-lead', async (req, res) => {
     const { name, phone, building_id, origin_desc } = req.body;
     const celular = phone ? phone.replace(/\D/g, '') : null;
@@ -1332,20 +1306,17 @@ app.post('/webhook-lead', async (req, res) => {
     } catch (error) { res.status(500).send("Erro"); }
 });
 
-// --- ROTA PARA PARAR / PAUSAR A VARREDURA ---
 app.post('/parar-ciclo-recadastro', async (req, res) => {
     if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) { 
         return res.status(403).send("Acesso negado."); 
     }
     
-    // Ativa a trava de segurança globalmente na memória do processo
     process.env.PAUSAR_RECADASTRO = 'true';
     
     console.log("🛑 Varredura de proprietários pausada manualmente através da Central.");
     res.status(200).send("Varredura pausada com sucesso.");
 });
 
-// --- ROTA PARA RETOMAR A VARREDURA ---
 app.post('/retomar-ciclo-recadastro', async (req, res) => {
     if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) { 
         return res.status(403).send("Acesso negado."); 
@@ -1391,24 +1362,19 @@ app.post('/remover-urgencia/:sender', async (req, res) => {
     res.status(200).send("Lead não urgente.");
 });
 
-// --- MONITORAMENTO AUTOMÁTICO DE LEADS (RODA A CADA 30 MIN) ---
 async function monitorarLeads() {
     const agora = new Date();
     
     for (const sender in leadsIndex) {
         const lead = leadsIndex[sender];
         
-        // Travas de segurança essenciais
         if (lead.enviadoParaCRM) continue; 
         if (lead.status === 'aguardando_humano') continue; 
         if (!lead.ultimaInteracao) continue; 
         
-        // 🚨 TRAVA CRÍTICA ADICIONADA: Ignora quem é proprietário! 🚨
         if (lead.isProprietario) continue;
 
         const diffHoras = (agora - new Date(lead.ultimaInteracao)) / (1000 * 60 * 60);
-
-        // ... (resto da função continua igualzinho)
 
         if (lead.categoria === 'captacao' && diffHoras >= 2) {
             await forcarEnvioCRM(sender, "Encaminhamento automático: captação não forneceu endereço.");
