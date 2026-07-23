@@ -879,9 +879,15 @@ app.post('/webhook', async (req, res) => {
             REGRAS OBRIGATÓRIAS PARA ESTE ATENDIMENTO (SIGA A ORDEM):
             1. É ESTRITAMENTE PROIBIDO perguntar se ele quer comprar ou alugar, qual bairro ou quartos. Ele é o dono.
             2. NUNCA pergunte o endereço, a referência ou o código do imóvel. Você já tem esses dados.
-            3. REGRA DO VALOR: Se o cliente confirmar que o imóvel continua disponível, mas NÃO informar o valor na mesma frase, você DEVE perguntar com educação: "Perfeito! E o valor de ${tipoNegocioTxt} continua R$ ${valorNumProp} ou teve alguma alteração?". NÃO chame a função ainda. Aguarde a resposta dele.
-            4. AÇÃO FINAL: SOMENTE APÓS o proprietário confirmar o valor (seja dizendo que continua o mesmo, ou informando um valor novo), chame IMEDIATAMENTE a função 'atualizar_status_imovel_crm'.
-            5. Na função, preencha os parâmetros obrigatórios: id_imovel: "${idImovelProp}", tipo_negocio: "${tipoNegocioCRM}", valor_atualizado: [insira o valor confirmado por ele em formato numérico], lock: "free", status: "active".`;
+            3. REGRA DO VALOR (Se disponível): Se o cliente confirmar que o imóvel continua disponível, pergunte com educação: "Perfeito! E o valor de ${tipoNegocioTxt} continua R$ ${valorNumProp} ou teve alguma alteração?". NÃO chame a função ainda. Aguarde a resposta.
+            4. REGRA DE INDISPONIBILIDADE: Se o cliente informar que o imóvel já foi VENDIDO ou ALUGADO, ou que desistiu, não pergunte valor. Agradeça a informação e chame a função IMEDIATAMENTE.
+            5. AÇÃO FINAL: SOMENTE APÓS o proprietário confirmar o valor OU informar a indisponibilidade, chame a função 'atualizar_status_imovel_crm'.
+            6. MAPEAMENTO LÓGICO DE STATUS E LOCK (Siga EXATAMENTE este padrão na função):
+               - Continua à venda/locação normalmente: lock: "free", status: "active", valor_atualizado: [valor atual ou novo].
+               - Alugado, mas continua à venda: lock: "available_to_sale", status: "active", valor_atualizado: [valor de venda].
+               - Vendido (saiu de venda): lock: "sold", status: "inactive", valor_atualizado: 0.
+               - Alugado (saiu do mercado): lock: "rented", status: "inactive", valor_atualizado: 0.
+               - Desistiu/Suspendeu: lock: "suspended", status: "inactive", valor_atualizado: 0.`;
 
         } else {
             promptDinamico = process.env.SYSTEM_PROMPT || "Você é a Sheila, corretora da Siciliano Imóveis.";
@@ -956,7 +962,17 @@ app.post('/webhook', async (req, res) => {
             }
             else if (functionCall.name === "atualizar_status_imovel_crm") {
                 const { id_imovel, lock, status, valor_atualizado, tipo_negocio } = functionCall.args;
-                console.log(`LOG_DEBUG: Atualizando Imóvel ${id_imovel} | Status: ${status} | Lock: ${lock} | Valor: ${valor_atualizado} | Tipo: ${tipo_negocio}`);
+                
+                // 🛡️ HIGIENIZAÇÃO DE DADOS: Força minúsculas e remove espaços para o CRM não limpar o campo
+                let finalStatus = String(status).toLowerCase().trim();
+                let finalLock = String(lock).toLowerCase().trim();
+                let finalValor = Number(valor_atualizado);
+                
+                if (isNaN(finalValor) || finalValor < 0) {
+                    finalValor = 0; // Garante que o valor nunca vá nulo ou quebrado
+                }
+
+                console.log(`LOG_DEBUG: Atualizando Imóvel ${id_imovel} | Status: ${finalStatus} | Lock: ${finalLock} | Valor: ${finalValor} | Tipo: ${tipo_negocio}`);
 
                 const configCRM = {
                     headers: {
@@ -966,40 +982,38 @@ app.post('/webhook', async (req, res) => {
                     }
                 };
 
-                                try {
+                try {
                     const urlBuilding = `https://api.apresenta.me/buildings/${id_imovel}`;
                     
-                    // Payload único consolidado conforme orientação do suporte Sigafy/CRM
+                    // 🎯 PAYLOAD ÚNICO EXATO: Conforme orientação do suporte técnico Apresenta.me
                     const payloadBuilding = {
-                        lock: lock,
-                        status: status,
+                        lock: finalLock,
+                        status: finalStatus,
                         purposes: [
                             {
                                 type: tipo_negocio,
-                                amount: valor_atualizado,
-                                amount_max: valor_atualizado
+                                amount: finalValor,
+                                amount_max: finalValor
                             }
                         ]
                     };
 
-                    // Envia uma única requisição PUT
+                    // Envia a requisição consolidada
                     await axios.put(urlBuilding, payloadBuilding, configCRM);
 
                     console.log(`✅ Imóvel ${id_imovel} atualizado no CRM com sucesso (Status e Preço em requisição única)!`);
 
-                    
+                    // Marca a conclusão no servidor
                     if (leadsIndex[sender]) {
                         leadsIndex[sender].isProprietario = false;
-                        leadsIndex[sender].atualizacaoConcluida = true; // <-- Marca que a atualização foi finalizada com sucesso
+                        leadsIndex[sender].atualizacaoConcluida = true;
                         leadsIndex[sender].enviadoParaCRM = true;
-                        
                         fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
                     }
 
+                    conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: A atualização no sistema foi CONCLUÍDA com sucesso (Status: ${finalStatus}, Valor: R$${finalValor}). A instrução de chamar a função JÁ FOI CUMPRIDA! AGORA, APENAS escreva uma mensagem de texto humana e natural agradecendo ao proprietário. É ESTRITAMENTE PROIBIDO escrever código, chaves ou blocos JSON nesta resposta.` }] });
 
-                    conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: A atualização no sistema foi CONCLUÍDA com sucesso (Status: ${status}, Valor: R$${valor_atualizado}). A instrução de chamar a função JÁ FOI CUMPRIDA! AGORA, APENAS escreva uma mensagem de texto humana e natural agradecendo ao proprietário. É ESTRITAMENTE PROIBIDO escrever código, chaves ou blocos JSON nesta resposta.` }] });
-
-               } catch (errorUpdate) {
+                } catch (errorUpdate) {
                     console.error("❌ Erro ao atualizar imóvel no CRM:", errorUpdate.response?.data || errorUpdate.message);
                     
                     // 🛡️ BLINDAGEM: Mesmo se a API do CRM cair ou der erro, encerramos o fluxo no nosso servidor para não incomodar o cliente depois
