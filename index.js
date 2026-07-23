@@ -54,6 +54,63 @@ function traduzirOrigem(nomePortal) {
     return "whatsapp_direto"; 
 }
 
+const crypto = require('crypto');
+
+// Função auxiliar para criptografar dados no padrão exigido pela Meta (SHA-256)
+function hashData(data) {
+    if (!data) return '';
+    const cleaned = data.toString().trim().toLowerCase();
+    return crypto.createHash('sha256').update(cleaned).digest('hex');
+}
+
+// Função para enviar o evento de conversão para a API da Meta
+async function enviarEventoMeta(telefone, nome, nomeEvento = 'Lead') {
+    const pixelId = process.env.META_PIXEL_ID;
+    const accessToken = process.env.META_ACCESS_TOKEN;
+    
+    if (!pixelId || !accessToken) {
+        console.log("LOG_META: Variáveis META_PIXEL_ID ou META_ACCESS_TOKEN não configuradas no Railway.");
+        return;
+    }
+
+    try {
+        let telefoneLimpo = telefone.replace(/\D/g, '');
+        if (!telefoneLimpo.startsWith('55') && telefoneLimpo.length <= 11) {
+            telefoneLimpo = '55' + telefoneLimpo;
+        }
+
+        const payload = {
+            data: [
+                {
+                    event_name: nomeEvento, // Ex: 'Lead' ou 'CompleteRegistration'
+                    event_time: Math.floor(Date.now() / 1000),
+                    action_source: "chat",
+                    user_data: {
+                        ph: [hashData(telefoneLimpo)],
+                        fn: nome ? [hashData(nome.split(' ')[0])] : undefined,
+                        ln: nome && nome.includes(' ') ? [hashData(nome.split(' ').slice(1).join(' '))] : undefined,
+                        country: [hashData('br')],
+                        ct: [hashData('niteroi')]
+                    }
+                }
+            ]
+        };
+
+        const response = await fetch(`https://graph.facebook.com/v18.0/${pixelId}/events?access_token=${accessToken}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+        console.log(`LOG_META: Evento '${nomeEvento}' disparado com sucesso para ${telefone}`, result);
+    } catch (error) {
+        console.error("LOG_META: Erro ao enviar evento para a API de Conversões da Meta:", error);
+    }
+}
+
+
+
 // --- SANITIZAÇÃO DE TEXTO DA IA (REMOVE FUNÇÕES E JSON VAZADOS) ---
 function limparTextoIA(texto) {
     if (!texto) return "";
@@ -931,7 +988,8 @@ app.post('/webhook', async (req, res) => {
                     if (leadsIndex[sender]) {
                         leadsIndex[sender].isProprietario = false;
                         leadsIndex[sender].atualizacaoConcluida = true; // <-- Marca que a atualização foi finalizada com sucesso
-                        leadsIndex[sender].enviadoParaCRM = true; 
+                        leadsIndex[sender].enviadoParaCRM = true;
+                        
                         fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
                     }
 
@@ -1018,6 +1076,7 @@ app.post('/webhook', async (req, res) => {
                     mensagem: "Captação de Novo Imóvel", 
                     observacoes: `🏠 Captação Solicitada\nIntenção: ${intencao}\nEndereço: ${endereco}` 
                 });
+                await enviarEventoMeta(sender, nomeParaSalvar, 'Lead');
 
                 const resposta = "Perfeito, já anotei o endereço e a sua intenção! Passei todas as informações para nossa equipe de captação, que entrará em contato com você em breve.";
                 await enviarMensagem(sender, resposta);
