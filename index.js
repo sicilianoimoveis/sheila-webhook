@@ -843,7 +843,7 @@ app.post('/webhook', async (req, res) => {
 
         const response = await axios.post(url, payloadInicial);
         const contentResponse = response.data?.candidates?.[0]?.content;
-        const functionCall = contentResponse?.parts?.[0]?.functionCall;
+        const functionCall = contentResponse?.parts?.find(part => part.functionCall)?.functionCall;
 
         if (functionCall) {
             console.log("LOG_DEBUG: A Sheila chamou a função:", functionCall.name);
