@@ -182,7 +182,7 @@
             container.innerHTML = '';
             listaGlobalDeLeads.filter(l => {
                 const nome = (l.nome || "").toLowerCase();
-                let int = l.categoria === 'captacao' ? 'captacao' : (l.purpose === 'rent' ? 'aluguel' : 'compra');
+                let int = (l.isCaptacao || l.categoria === 'captacao') ? 'captacao' : (l.purpose === 'rent' ? 'aluguel' : 'compra');
                 if (l.isProprietario) int = 'atualizacao';
                 const ori = (l.origem || "").toLowerCase();
 
@@ -194,7 +194,7 @@
                 const date = new Date(lead.ultimaInteracao).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
                 
                 // --- LÓGICA DAS TAGS ---
-                let intTexto = lead.categoria === 'captacao' ? 'Captação' : (lead.purpose === 'rent' ? 'Aluguel' : 'Compra');
+                let intTexto = (lead.isCaptacao || lead.categoria === 'captacao') ? 'Captação' : (lead.purpose === 'rent' ? 'Aluguel' : 'Compra');
                 let corFundoInt = '#e2e8f0'; // Cinza Padrão
                 
                 if (lead.isProprietario) {
