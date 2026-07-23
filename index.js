@@ -999,8 +999,17 @@ app.post('/webhook', async (req, res) => {
 
                     conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: A atualização no sistema foi CONCLUÍDA com sucesso (Status: ${status}, Valor: R$${valor_atualizado}). A instrução de chamar a função JÁ FOI CUMPRIDA! AGORA, APENAS escreva uma mensagem de texto humana e natural agradecendo ao proprietário. É ESTRITAMENTE PROIBIDO escrever código, chaves ou blocos JSON nesta resposta.` }] });
 
-                } catch (errorUpdate) {
+               } catch (errorUpdate) {
                     console.error("❌ Erro ao atualizar imóvel no CRM:", errorUpdate.response?.data || errorUpdate.message);
+                    
+                    // 🛡️ BLINDAGEM: Mesmo se a API do CRM cair ou der erro, encerramos o fluxo no nosso servidor para não incomodar o cliente depois
+                    if (leadsIndex[sender]) {
+                        leadsIndex[sender].isProprietario = false;
+                        leadsIndex[sender].atualizacaoConcluida = true; 
+                        leadsIndex[sender].enviadoParaCRM = true;
+                        fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
+                    }
+
                     conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: Houve uma falha sistêmica ao tentar salvar, mas a instrução de chamar a função já foi cumprida. AGORA, APENAS escreva uma mensagem de texto natural agradecendo ao cliente pela informação. É ESTRITAMENTE PROIBIDO escrever código, chaves ou blocos JSON nesta resposta.` }] });
                 }
 
@@ -1536,11 +1545,12 @@ async function monitorarLeads() {
     for (const sender in leadsIndex) {
         const lead = leadsIndex[sender];
         
-        if (lead.enviadoParaCRM) continue; 
+        // 🛡️ TRAVAS MÁXIMAS ANTI-SPAM
+        if (lead.enviadoParaCRM) continue; // Pula quem já foi pro CRM
+        if (lead.atualizacaoConcluida) continue; // Pula proprietário que já atualizou (mesmo que o CRM tenha dado erro)
+        if (lead.isProprietario) continue; // Pula proprietário que ainda está no meio da conversa
         if (lead.status === 'aguardando_humano') continue; 
         if (!lead.ultimaInteracao) continue; 
-        
-        if (lead.isProprietario) continue;
 
         const diffHoras = (agora - new Date(lead.ultimaInteracao)) / (1000 * 60 * 60);
 
