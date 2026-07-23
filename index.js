@@ -966,24 +966,27 @@ app.post('/webhook', async (req, res) => {
                     }
                 };
 
-                try {
+                                try {
                     const urlBuilding = `https://api.apresenta.me/buildings/${id_imovel}`;
-                    await axios.put(urlBuilding, {
+                    
+                    // Payload único consolidado conforme orientação do suporte Sigafy/CRM
+                    const payloadBuilding = {
                         lock: lock,
-                        status: status
-                    }, configCRM);
-
-                    const urlPurpose = `https://api.apresenta.me/buildings/${id_imovel}/purposes`;
-                    const payloadPurpose = {
-                        type: tipo_negocio, 
-                        currency: "BRL",    
-                        amount: valor_atualizado,
-                        amount_max: valor_atualizado
+                        status: status,
+                        purposes: [
+                            {
+                                type: tipo_negocio,
+                                amount: valor_atualizado,
+                                amount_max: valor_atualizado
+                            }
+                        ]
                     };
 
-                    await axios.post(urlPurpose, payloadPurpose, configCRM);
+                    // Envia uma única requisição PUT
+                    await axios.put(urlBuilding, payloadBuilding, configCRM);
 
-                                        console.log(`✅ Imóvel ${id_imovel} atualizado no CRM com sucesso (Status e Preço corrigidos)!`);
+                    console.log(`✅ Imóvel ${id_imovel} atualizado no CRM com sucesso (Status e Preço em requisição única)!`);
+
                     
                     if (leadsIndex[sender]) {
                         leadsIndex[sender].isProprietario = false;
