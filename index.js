@@ -879,6 +879,7 @@ app.post('/webhook', async (req, res) => {
             if (functionCall.name === "iniciar_captacao") {
                 if (!leadsIndex[sender]) atualizarIndiceLeads(sender, null, "WhatsApp"); 
                 leadsIndex[sender].categoria = 'captacao';
+                leadsIndex[sender].isCaptacao = true;
                 leadsIndex[sender].ultimaInteracao = new Date().toISOString();
                 fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
                 
