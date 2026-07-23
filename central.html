@@ -185,11 +185,13 @@
             container.innerHTML = '';
             listaGlobalDeLeads.filter(l => {
                 const nome = (l.nome || "").toLowerCase();
-              let int = (lead.isCaptacao || lead.categoria === 'captacao') ? 'captacao' : 
-                          (lead.atualizacaoConcluida) ? 'atualizado' : 
-                          (lead.isProprietario) ? 'atualizacao' : 
-                          (lead.purpose === 'rent' ? 'aluguel' : 'compra');
                 
+                // CORREÇÃO: Usando 'l' em vez de 'lead' dentro do filtro
+                let int = (l.isCaptacao || l.categoria === 'captacao') ? 'captacao' : 
+                          (l.atualizacaoConcluida) ? 'atualizado' : 
+                          (l.isProprietario) ? 'atualizacao' : 
+                          (l.purpose === 'rent' ? 'aluguel' : 'compra');
+
                 const ori = (l.origem || "").toLowerCase();
 
                 return (nome.includes(query) || l.sender.includes(query)) &&
