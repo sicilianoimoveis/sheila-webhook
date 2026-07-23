@@ -736,24 +736,52 @@ app.post('/webhook', async (req, res) => {
     if (!msgData) return res.sendStatus(200);
 
     const sender = msgData.from;
-    // --- NOVA TRAVA: SE O LEAD ESTIVER PAUSADO MANUALMENTE NA CENTRAL, IGNORA A MENSAGEM ---
+    
+    // --- 1. TRAVA DE PAUSA MANUAL NA CENTRAL ---
     if (leadsIndex[sender] && leadsIndex[sender].pausado) {
         console.log(`LOG_DEBUG: Mensagem de ${sender} ignorada. IA pausada para este contato.`);
         return res.sendStatus(200); 
     }
 
+    // --- 2. DETECÇÃO AUTOMÁTICA DE ORIGEM (META ADS / REFERRAL) ---
+    const referral = msgData.referral;
+    let origemDetectada = leadsIndex[sender]?.origem || "WhatsApp";
+
+    if (referral && referral.source_type === 'ad') {
+        const urlOrigem = (referral.source_url || "").toLowerCase();
+        const corpoAnuncio = (referral.body || "").toLowerCase();
+        
+        if (urlOrigem.includes("instagram") || corpoAnuncio.includes("instagram")) {
+            origemDetectada = "Instagram";
+        } else {
+            origemDetectada = "Instagram"; // Padrão para anúncios Meta Ads
+        }
+    }
+    // -------------------------------------------------------------
+
     const nomeMeta = req.body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile?.name;
 
     console.log(`\n========================================`);
-    console.log(`🔍 [WEBHOOK] Mensagem recebida de: ${sender}`);
+    console.log(`🔍 [WEBHOOK] Mensagem de: ${sender} | Origem: ${origemDetectada}`);
     console.log(`📊 Estado salvo no leadsIndex:`, JSON.stringify(leadsIndex[sender] || "NENHUM ESTADO ENCONTRADO"));
     console.log(`========================================\n`);
 
     const nomeAtual = leadsIndex[sender]?.nome;
     const nomeParaSalvar = (nomeAtual && nomeAtual !== "Lead Sem Nome") ? nomeAtual : (nomeMeta || "Cliente");
-    atualizarIndiceLeads(sender, nomeParaSalvar, "WhatsApp");
+    
+    // Atualiza o índice usando a origem detectada do anúncio (substituiu o "WhatsApp" fixo)
+    atualizarIndiceLeads(sender, nomeParaSalvar, origemDetectada);
 
     let textoCliente = msgData.text?.body;
+
+    // Atalho inteligente: Se a frase indicar anúncio de captação
+    if (textoCliente && (textoCliente.toLowerCase().includes("quero anunciar meu imóvel") || textoCliente.toLowerCase().includes("anunciar meu imóvel"))) {
+        if (!leadsIndex[sender]?.categoria) {
+            if (!leadsIndex[sender]) leadsIndex[sender] = {};
+            leadsIndex[sender].categoria = 'captacao';
+        }
+    }
+
     if (msgData.type === 'audio' && msgData.audio?.id) {
         const transcricao = await transcreverAudio(msgData.audio.id);
         if (transcricao) { textoCliente = transcricao; } 
