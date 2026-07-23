@@ -926,9 +926,9 @@ app.post('/webhook', async (req, res) => {
                                         console.log(`✅ Imóvel ${id_imovel} atualizado no CRM com sucesso (Status e Preço corrigidos)!`);
                     
                     if (leadsIndex[sender]) {
-                        // Mantém a tag de Proprietário para o filtro funcionar, mas marca como Enviado
+                        leadsIndex[sender].isProprietario = false;
+                        leadsIndex[sender].atualizacaoConcluida = true; // <-- Marca que a atualização foi finalizada com sucesso
                         leadsIndex[sender].enviadoParaCRM = true; 
-                        leadsIndex[sender].imovelAtualizando = null; 
                         fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
                     }
 
