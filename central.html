@@ -182,8 +182,9 @@
             container.innerHTML = '';
             listaGlobalDeLeads.filter(l => {
                 const nome = (l.nome || "").toLowerCase();
-                let int = (l.isCaptacao || l.categoria === 'captacao') ? 'captacao' : (l.purpose === 'rent' ? 'aluguel' : 'compra');
-                if (l.isProprietario) int = 'atualizacao';
+                let int = (l.isCaptacao || l.categoria === 'captacao') ? 'captacao' : 
+          (l.isProprietario || l.atualizacaoConcluida) ? 'atualizacao' : 
+          (l.purpose === 'rent' ? 'aluguel' : 'compra');
                 const ori = (l.origem || "").toLowerCase();
 
                 return (nome.includes(query) || l.sender.includes(query)) &&
@@ -194,7 +195,10 @@
                 const date = new Date(lead.ultimaInteracao).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
                 
                 // --- LÓGICA DAS TAGS ---
-                let intTexto = (lead.isCaptacao || lead.categoria === 'captacao') ? 'Captação' : (lead.purpose === 'rent' ? 'Aluguel' : 'Compra');
+                let intTexto = (lead.isCaptacao || lead.categoria === 'captacao') ? 'Captação' : 
+               (lead.isProprietario ? 'Atualização' : 
+               (lead.atualizacaoConcluida ? 'Atualizado' : 
+               (lead.purpose === 'rent' ? 'Aluguel' : 'Compra')));
                 let corFundoInt = '#e2e8f0'; // Cinza Padrão
                 
                 if (lead.isProprietario) {
