@@ -1235,8 +1235,10 @@ app.post('/webhook', async (req, res) => {
                         
                         contextoOpcoes += `- Link: ${i.DetailViewUrl}\n  ID: ${i.ListingID}\n  Venda: ${precos.venda} | Locação: ${precos.locacao}\n  Endereço permitido: ${enderecoSeguro}\n  Quartos: ${v(i.Details?.Bedrooms)} | Suítes: ${v(i.Details?.Suites)} | Vagas: ${v(i.Details?.Garage)}\n  Extras: ${features}\n\n`;
 
-                        const dados = `Título: ${i.Title}, Descrição: ${desc}, Preço Venda: ${precos.venda}, Preço Locação: ${precos.locacao}, Link: ${i.DetailViewUrl}`;
-                        const payloadLocal = [...conversa, { "role": "user", "parts": [{ "text": `Apresente este imóvel: ${dados}. Respeite rigorosamente as regras do seu SYSTEM PROMPT.` }] }];
+                                                const dados = `Título: ${i.Title}, Descrição: ${desc}, Preço Venda: ${precos.venda}, Preço Locação: ${precos.locacao}, Link: ${i.DetailViewUrl}`;
+                        
+                        const payloadLocal = [...conversa, { "role": "user", "parts": [{ "text": `INFORMAÇÃO DE SISTEMA: Apresente de forma muito resumida este imóvel ao cliente usando APENAS os dados a seguir: ${dados}. \nREGRA DE SEGURANÇA MÁXIMA: É ESTRITAMENTE PROIBIDO inventar, deduzir, criar ou alterar URLs e características. Você DEVE repassar o Link exatamente como está nos dados fornecidos e nunca oferecer opções que não estejam listadas aqui.` }] }];
+
 
                         try {
                             const respFinal = await axios.post(url, { "systemInstruction": { "parts": [{ "text": process.env.SYSTEM_PROMPT }] }, "contents": payloadLocal });
