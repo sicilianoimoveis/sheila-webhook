@@ -1076,7 +1076,7 @@ app.post('/webhook', async (req, res) => {
                     mensagem: "Captação de Novo Imóvel", 
                     observacoes: `🏠 Captação Solicitada\nIntenção: ${intencao}\nEndereço: ${endereco}` 
                 });
-                await enviarEventoMeta(sender, nomeParaSalvar, 'Lead');
+                await enviarEventoMeta(sender, nome, 'Lead');
 
                 const resposta = "Perfeito, já anotei o endereço e a sua intenção! Passei todas as informações para nossa equipe de captação, que entrará em contato com você em breve.";
                 await enviarMensagem(sender, resposta);
