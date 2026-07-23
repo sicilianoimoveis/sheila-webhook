@@ -102,7 +102,7 @@
                     <option value="aluguel">Aluguel</option>
                     <option value="captacao">Captação</option>
                     <option value="atualizacao">Atualização</option>
-                    <option value="atualizacao">Atualizado</option>
+                    <option value="atualizado">Atualizado</option>
                 </select>
                 <select id="filterOrigem" class="filter-select">
                     <option value="todos">Origem</option>
@@ -111,8 +111,8 @@
                     <option value="vivareal">Vivareal</option>
                     <option value="lead4sales">Lead4Sales</option>
                     <option value="proprietario">Proprietário</option>
-                    <option value="proprietario">Instagram</option>
-                    <option value="proprietario">Facebook</option>
+                    <option value="instagram">Instagram</option>
+                    <option value="facebook">Facebook</option>
                 </select>
                 <select id="filterStatus" class="filter-select">
                     <option value="todos">Status</option>
@@ -185,30 +185,33 @@
             container.innerHTML = '';
             listaGlobalDeLeads.filter(l => {
                 const nome = (l.nome || "").toLowerCase();
-                let int = (l.isCaptacao || l.categoria === 'captacao') ? 'captacao' : 
-          (l.isProprietario || l.atualizacaoConcluida) ? 'atualizacao' : 
-          (l.purpose === 'rent' ? 'aluguel' : 'compra');
+              let int = (lead.isCaptacao || lead.categoria === 'captacao') ? 'captacao' : 
+                          (lead.atualizacaoConcluida) ? 'atualizado' : 
+                          (lead.isProprietario) ? 'atualizacao' : 
+                          (lead.purpose === 'rent' ? 'aluguel' : 'compra');
+                
                 const ori = (l.origem || "").toLowerCase();
 
                 return (nome.includes(query) || l.sender.includes(query)) &&
                        (intFilter === 'todos' || int === intFilter) &&
-                       (oriFilter === 'todos' || ori.includes(oriFilter)) &&
+                       (oriFilter === 'todos' || ori === oriFilter) &&
                        (statFilter === 'todos' || (statFilter === 'enviado' ? l.enviadoParaCRM : !l.enviadoParaCRM));
             }).forEach(lead => {
                 const date = new Date(lead.ultimaInteracao).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
                 
                 // --- LÓGICA DAS TAGS ---
                 let intTexto = (lead.isCaptacao || lead.categoria === 'captacao') ? 'Captação' : 
-               (lead.isProprietario ? 'Atualização' : 
-               (lead.atualizacaoConcluida ? 'Atualizado' : 
-               (lead.purpose === 'rent' ? 'Aluguel' : 'Compra')));
+                               (lead.atualizacaoConcluida) ? 'Atualizado' : 
+                               (lead.isProprietario) ? 'Atualização' : 
+                               (lead.purpose === 'rent' ? 'Aluguel' : 'Compra');
+                
                 let corFundoInt = '#e2e8f0'; // Cinza Padrão
                 
                 if (lead.isProprietario) {
-                    intTexto = 'Atualização';
-                    corFundoInt = '#fef08a'; // Amarelo para destacar Recadastramento
+                    corFundoInt = '#fef08a'; // Amarelo para destacar Atualização em andamento
+                } else if (lead.atualizacaoConcluida) {
+                    corFundoInt = '#bbf7d0'; // Verde claro para Atualização finalizada
                 }
-
                 // --- LÓGICA DO BOTÃO PAUSAR IA ---
                 const isPausado = lead.pausado === true;
                 const txtBotaoPausa = isPausado ? '▶️ Retomar IA' : '⏸️ Pausar IA';
