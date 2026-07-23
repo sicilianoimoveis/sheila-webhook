@@ -743,7 +743,7 @@ app.post('/webhook', async (req, res) => {
         return res.sendStatus(200); 
     }
 
-    // --- 2. DETECÇÃO AUTOMÁTICA DE ORIGEM (META ADS / REFERRAL) ---
+    // --- DETECÇÃO PRECISA DE ORIGEM (FACEBOOK ADS VS INSTAGRAM ADS) ---
     const referral = msgData.referral;
     let origemDetectada = leadsIndex[sender]?.origem || "WhatsApp";
 
@@ -753,8 +753,11 @@ app.post('/webhook', async (req, res) => {
         
         if (urlOrigem.includes("instagram") || corpoAnuncio.includes("instagram")) {
             origemDetectada = "Instagram";
+        } else if (urlOrigem.includes("facebook") || urlOrigem.includes("fb.me") || corpoAnuncio.includes("facebook")) {
+            origemDetectada = "Facebook";
         } else {
-            origemDetectada = "Instagram"; // Padrão para anúncios Meta Ads
+            // Se a URL genérica não especificar, você pode definir um padrão ou deixar como tráfego pago
+            origemDetectada = "Instagram"; 
         }
     }
     // -------------------------------------------------------------
