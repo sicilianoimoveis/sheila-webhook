@@ -1187,35 +1187,52 @@ app.post('/webhook', async (req, res) => {
 app.post('/webhook-leads4sales', async (req, res) => {
     try {
         const data = req.body;
-        if (!data.clientListingId) { return res.status(400).json({ error: "clientListingId é obrigatório" }); }
-        res.status(200).json({ status: "success", message: "Lead recebido com sucesso" });
+        if (!data.clientListingId) { 
+            return res.status(400).json({ error: "clientListingId é obrigatório" }); 
+        }
+        
+        // Responde imediatamente para o portal
+        if (!res.headersSent) {
+            res.status(200).json({ status: "success", message: "Lead recebido com sucesso" });
+        }
 
         const nome = data.name || 'Cliente';
         let celular = data.phoneNumber ? data.phoneNumber.replace(/\D/g, '') : "";
-        const referenciaOriginal = String(data.clientListingId);
+        const referenciaOriginal = String(data.clientListingId).trim();
         const mensagemPortal = data.message || 'Gostaria de informações sobre este imóvel.';
 
-        if (!celular) return;
-        if (!celular.startsWith("55")) { celular = `55${celular}`; }
+        if (!celular || !referenciaOriginal) {
+            console.log("⚠️ Webhook Leads4Sales ignorado: Telefone ou ID do imóvel ausentes.");
+            return;
+        }
+        
+        if (!celular.startsWith("55")) { 
+            celular = `55${celular}`; 
+        }
 
+        // Tenta encontrar o imóvel na base XML (tratando possíveis formatos com "_")
         let imovel = cacheImoveis.find(i => String(i.ListingID) === referenciaOriginal);
         if (!imovel && referenciaOriginal.includes('_')) {
             const idLimpo = referenciaOriginal.split('_')[1]; 
             imovel = cacheImoveis.find(i => String(i.ListingID) === idLimpo);
         }
 
-        const idDefinitivo = imovel ? imovel.ListingID : referenciaOriginal;
+        const idDefinitivo = imovel ? String(imovel.ListingID) : referenciaOriginal;
         const linkImovel = imovel ? imovel.DetailViewUrl : `https://sicilianoimoveis.com.br/imovel/${idDefinitivo}`;
 
-        atualizarIndiceLeads(celular, nome, 'lead4sales', false, idDefinitivo);
+        // Pega o histórico antes de mexer no índice
         let conversa = obterHistorico(celular);
         
-        const imoveisDoLead = leadsIndex[celular]?.imoveisInteresse || [];
-        const ultimoImovelDoLead = imoveisDoLead.length > 1 ? imoveisDoLead[imoveisDoLead.length - 2] : null;
-        const ehImovelNovo = !conversa.length || (idDefinitivo && ultimoImovelDoLead !== idDefinitivo);
+        // Validação segura baseada na lista de imóveis já salvos do lead
+        const imoveisJaAtendidos = leadsIndex[celular]?.imoveisInteresse || [];
+        const jaAtendidoParaEsteImovel = imoveisJaAtendidos.includes(idDefinitivo);
 
-        if (ehImovelNovo) {
+        // Atualiza o índice do lead com o imóvel atual
+        atualizarIndiceLeads(celular, nome, 'lead4sales', false, idDefinitivo);
+
+        if (!jaAtendidoParaEsteImovel) {
             let contextoOculto = `DADOS TÉCNICOS PARA CONSULTA INTERNA DA SHEILA: Novo interesse do lead no portal Leads4Sales.\nNome: ${nome}\nMensagem: "${mensagemPortal}"\nID do Imóvel Novo: ${idDefinitivo}\n`;
+            
             if (imovel) {
                 const precos = obterPrecosFormatados(imovel);
                 contextoOculto += `Dados: Venda ${precos.venda}, Locação ${precos.locacao}, Endereço permitido: ${obterEnderecoSeguro(imovel)}.`;
@@ -1226,19 +1243,27 @@ app.post('/webhook-leads4sales', async (req, res) => {
             conversa.push({ role: "model", parts: [{ text: textoTemplate }] });
             salvarHistorico(celular, conversa);
             
-            await enviarTemplateLead(celular, nome, linkImovel);
-            console.log(`LOG_DEBUG: Template Leads4Sales enviado com sucesso para ${nome} (${celular}) sobre o imóvel ${idDefinitivo}`);
+            // Tenta enviar o template com tratamento de erro e fallback de texto simples
+            try {
+                await enviarTemplateLead(celular, nome, linkImovel);
+                console.log(`✅ Template Leads4Sales enviado com sucesso para ${nome} (${celular}) sobre o imóvel ${idDefinitivo}`);
+            } catch (erroTemplate) {
+                console.error(`❌ ERRO CRÍTICO ao enviar template Leads4Sales para ${celular}:`, erroTemplate.response?.data || erroTemplate.message);
+                await enviarMensagem(celular, textoTemplate);
+            }
+
         } else {
-            console.log(`LOG_DEBUG: Lead Leads4Sales (${celular}) já foi atendido para este mesmo imóvel.`);
+            console.log(`LOG_DEBUG: Lead Leads4Sales (${celular}) já foi atendido anteriormente para o imóvel ${idDefinitivo}. Ignorando disparo.`);
         }
     } catch (error) { 
-        console.error("ERRO no webhook Leads4Sales:", error.message);
+        console.error("❌ ERRO no webhook Leads4Sales:", error.message);
         if (!res.headersSent) res.status(500).json({ error: "Erro interno no servidor" }); 
     }
 });
 
 app.post('/webhook-imovelweb', async (req, res) => {
-    res.status(200).send('Webhook recebido com sucesso');
+    // Responde imediatamente para o portal não achar que deu timeout
+    if (!res.headersSent) res.status(200).send('Webhook recebido com sucesso');
 
     try {
         const data = req.body;
@@ -1246,22 +1271,32 @@ app.post('/webhook-imovelweb', async (req, res) => {
 
         const nome = data.name || data.nombre || data.contactName || 'Cliente';
         const telefoneBruto = data.phone || data.telefono || data.cellphone || "";
-        const referencia = data.internalReference || data.listingId || data.propertyId || "";
+        const referencia = String(data.internalReference || data.listingId || data.propertyId || "").trim();
         const mensagemPortal = data.message || data.comentario || 'Gostaria de informações sobre este imóvel.';
 
-        if (!telefoneBruto) return;
-        const celular = telefoneBruto.replace(/\D/g, '');
+        if (!telefoneBruto || !referencia) {
+            console.log("⚠️ Webhook Imóvelweb ignorado: Telefone ou Referência do imóvel ausentes.");
+            return;
+        }
+        
+        let celular = telefoneBruto.replace(/\D/g, '');
+        if (!celular.startsWith("55")) celular = `55${celular}`;
 
-        const imovel = cacheImoveis.find(i => String(i.ListingID) === String(referencia));
+        // Busca o imóvel na base XML
+        const imovel = cacheImoveis.find(i => String(i.ListingID) === referencia);
         const linkImovel = imovel ? imovel.DetailViewUrl : `https://sicilianoimoveis.com.br/imovel/${referencia}`;
 
-        atualizarIndiceLeads(celular, nome, 'imovelweb', false, referencia);
+        // Recupera o histórico ANTES de mexer no índice
         let conversa = obterHistorico(celular);
+        
+        // Verifica de forma segura se este lead já perguntou por ESTE mesmo imóvel exato antes
+        const imoveisJaAtendidos = leadsIndex[celular]?.imoveisInteresse || [];
+        const jaAtendidoParaEsteImovel = imoveisJaAtendidos.includes(referencia);
 
-        const ultimoImovelDoLead = leadsIndex[celular]?.imoveisInteresse?.[leadsIndex[celular].imoveisInteresse.length - 2];
-        const ehImovelNovo = !conversa.length || (referencia && ultimoImovelDoLead !== referencia);
+        // Atualiza o índice do lead com o novo imóvel
+        atualizarIndiceLeads(celular, nome, 'imovelweb', false, referencia);
 
-        if (ehImovelNovo) {
+        if (!jaAtendidoParaEsteImovel) {
             let contextoOculto = `DADOS TÉCNICOS PARA CONSULTA INTERNA DA SHEILA: Novo interesse do lead no portal Imovelweb.\nNome: ${nome}\nMensagem: "${mensagemPortal}"\nID do Imóvel Novo: ${referencia}\n`;
             
             if (imovel) {
@@ -1275,14 +1310,22 @@ app.post('/webhook-imovelweb', async (req, res) => {
             
             salvarHistorico(celular, conversa);
 
-            await enviarTemplateLead(celular, nome, linkImovel);
-            console.log(`LOG_DEBUG: Template enviado com sucesso para ${nome} (${celular}) sobre o imóvel ${referencia}`);
+            // TENTA DISPARAR O TEMPLATE OFICIAL DA META COM LOG DE ERRO CLARO
+            try {
+                await enviarTemplateLead(celular, nome, linkImovel);
+                console.log(`✅ Template Imóvelweb enviado com sucesso para ${nome} (${celular}) sobre o imóvel ${referencia}`);
+            } catch (erroTemplate) {
+                console.error(`❌ ERRO CRÍTICO ao enviar template Meta para ${celular}:`, erroTemplate.response?.data || erroTemplate.message);
+                // Fallback de segurança: se o template falhar, manda ao menos texto simples para o cliente não ficar no vácuo
+                await enviarMensagem(celular, textoTemplate);
+            }
+
         } else {
-            console.log(`LOG_DEBUG: Lead ${celular} já foi atendido para este mesmo imóvel.`);
+            console.log(`LOG_DEBUG: Lead ${celular} já foi atendido anteriormente para o imóvel ${referencia}. Ignorando novo disparo.`);
         }
 
     } catch (error) {
-        console.error("ERRO ao processar webhook do Imovelweb:", error.message);
+        console.error("❌ ERRO geral ao processar webhook do Imovelweb:", error.message);
     }
 });
 
