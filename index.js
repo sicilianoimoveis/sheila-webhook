@@ -640,10 +640,10 @@ app.get('/chat/:sender', (req, res) => {
         .model { background: #ffffff; margin-right: auto; text-align: left; }
         .time { font-size: 10px; color: #999; margin-top: 5px; display: block; text-align: right; }
     </style></head><body>
-    <div class="header">
-        <a href="javascript:history.back()" class="btn-voltar">⬅ Voltar</a>
+        <div class="header">
         <img src="https://img.apre.me/M7UtVktPLcjSy00sSk8sKc7LVMhPz8-RL07NyUyzzVSztDQwtU0GAA.jpeg" alt="Logo">
     </div>
+
     <div class="lead-info">
         <strong>Cliente:</strong> ${nomeLead}<br>
         <small>${sender}</small><br>
@@ -894,12 +894,15 @@ app.post('/webhook', async (req, res) => {
 
                     await axios.post(urlPurpose, payloadPurpose, configCRM);
 
-                    console.log(`✅ Imóvel ${id_imovel} atualizado no CRM com sucesso (Status e Preço corrigidos)!`);
+                                        console.log(`✅ Imóvel ${id_imovel} atualizado no CRM com sucesso (Status e Preço corrigidos)!`);
                     
                     if (leadsIndex[sender]) {
-                        leadsIndex[sender].isProprietario = false;
+                        // Mantém a tag de Proprietário para o filtro funcionar, mas marca como Enviado
+                        leadsIndex[sender].enviadoParaCRM = true; 
+                        leadsIndex[sender].imovelAtualizando = null; 
                         fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
                     }
+
 
                     conversa.push({ "role": "user", "parts": [{ "text": `INFORMAÇÃO INTERNA: A atualização no sistema foi CONCLUÍDA com sucesso (Status: ${status}, Valor: R$${valor_atualizado}). A instrução de chamar a função JÁ FOI CUMPRIDA! AGORA, APENAS escreva uma mensagem de texto humana e natural agradecendo ao proprietário. É ESTRITAMENTE PROIBIDO escrever código, chaves ou blocos JSON nesta resposta.` }] });
 
