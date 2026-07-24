@@ -841,9 +841,28 @@ app.post('/webhook', async (req, res) => {
     atualizarIndiceLeads(sender, nomeParaSalvar, origemDetectada);
 
     let textoCliente = msgData.text?.body;
-    // 🎯 INTERCEPTADOR DE MENSAGENS AUTOMÁTICAS DE PORTAIS (Wimoveis, Imovelweb, Zap, VivaReal)
-    if (textoCliente && textoCliente.match(/wimoveis\.com|imovelweb\.com|zapimoveis\.com|vivareal\.com/i)) {
-        textoCliente += `\n\n[INFORMAÇÃO DE SISTEMA: O cliente enviou uma mensagem com um link de portal parceiro. É ESTRITAMENTE PROIBIDO chamar a função 'buscar_imovel' para ler esse link, pois o sistema não lê URLs externas. Verifique no seu histórico acima: o sistema acabou de injetar os "DADOS TÉCNICOS" completos deste imóvel para você. Apenas use esses dados da memória e continue o atendimento naturalmente perguntando o que ele deseja saber.]`;
+    // 🎯 INTERCEPTADOR INTELIGENTE DE LINKS E CÓDIGOS (Super Seguro)
+    if (textoCliente) {
+        // 1. Mensagens Automáticas de Portais Parceiros (Wimoveis, Imovelweb, Zap, etc)
+        if (textoCliente.match(/wimoveis\.com|imovelweb\.com|zapimoveis\.com|vivareal\.com/i)) {
+            textoCliente += `\n\n[INFORMAÇÃO DE SISTEMA: O cliente enviou uma mensagem com um link de portal parceiro. É ESTRITAMENTE PROIBIDO chamar a função 'buscar_imovel' para ler esse link, pois o sistema não lê URLs externas. Verifique no seu histórico acima: o sistema acabou de injetar os "DADOS TÉCNICOS" completos deste imóvel para você. Apenas use esses dados da memória e continue o atendimento naturalmente perguntando o que ele deseja saber.]`;
+        }
+        // 2. Link direto oficial do próprio site da Siciliano
+        else if (textoCliente.includes("sicilianoimoveis.com.br")) {
+            const regexIdSiciliano = /(?:imovel\/|-)(\d{5,7})\b/i;
+            const matchId = textoCliente.match(regexIdSiciliano);
+            if (matchId && matchId[1]) {
+                textoCliente += `\n\n[INFORMAÇÃO DE SISTEMA: O cliente enviou um link oficial do nosso site com o ID: ${matchId[1]}. CHAME IMEDIATAMENTE a função 'buscar_imovel' com o termo_de_busca "${matchId[1]}". Não responda nada antes de chamar a função.]`;
+            }
+        } 
+        // 3. Códigos ou Referências soltas no meio do texto
+        else if (textoCliente.toLowerCase().match(/(?:código|codigo|cód|cod|ref|referência|referencia)[\s:.-]*(\d{5,7})\b/i)) {
+            const regexCod = /(?:código|codigo|cód|cod|ref|referência|referencia)[\s:.-]*(\d{5,7})\b/i;
+            const matchCod = textoCliente.match(regexCod);
+            if (matchCod && matchCod[1]) {
+                textoCliente += `\n\n[INFORMAÇÃO DE SISTEMA: A mensagem contém o nosso código interno: ${matchCod[1]}. CHAME IMEDIATAMENTE a função 'buscar_imovel' com o termo_de_busca "${matchCod[1]}". Não responda nada antes.]`;
+            }
+        }
     }
 
     // Atalho inteligente: Se a frase indicar anúncio de captação
