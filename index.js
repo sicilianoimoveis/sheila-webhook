@@ -1199,7 +1199,7 @@ app.post('/webhook', async (req, res) => {
                     const features = obterFeatures(imovel);
                     const precos = obterPrecosFormatados(imovel);
                     const desc = v(imovel.Details?.Description);
-                    let dados = \DADOS TÉCNICOS: ID ${imovel.ListingID}, Venda:${precos.venda}, Locação: ${precos.locacao}, Condomínio: ${precos.condominio}, IPTU: ${precos.iptu}, TOTAL MENSAL APROXIMADO:${precos.totalLocacaoStr}. Endereço: ${enderecoSeguro}, Extras:${features}, Descrição: ${desc}. Link: ${imovel.DetailViewUrl}.`;`
+                    let dados = `DADOS TÉCNICOS: ID ${imovel.ListingID}, Venda: ${precos.venda}, Locação: ${precos.locacao}, Condomínio: ${precos.condominio}, IPTU: ${precos.iptu}, TOTAL MENSAL APROXIMADO: ${precos.totalLocacaoStr}. Endereço: ${enderecoSeguro}, Extras: ${features}, Descrição: ${desc}. Link: ${imovel.DetailViewUrl}.`;
                     conversa.push({ "role": "user", "parts": [{ "text": dados }] });
                 } else {
                     conversa.push({ "role": "user", "parts": [{ "text": `O imóvel "${termo}" não foi localizado.` }] });
@@ -1277,7 +1277,7 @@ app.post('/webhook', async (req, res) => {
                         
                         contextoOpcoes += `- Link: ${i.DetailViewUrl}\n  ID: ${i.ListingID}\n  Venda: ${precos.venda} | Locação: ${precos.locacao}\n  Endereço permitido: ${enderecoSeguro}\n  Quartos: ${v(i.Details?.Bedrooms)} | Suítes: ${v(i.Details?.Suites)} | Vagas: ${v(i.Details?.Garage)}\n  Extras: ${features}\n\n`;
 
-                                                const dados = \Título: ${i.Title}, Descrição: ${desc}, Preço Venda: ${precos.venda}, Locação Pura: ${precos.locacao}, TOTAL MENSAL (Aluguel+Cond+IPTU): ${precos.totalLocacaoStr}, Link:${i.DetailViewUrl}`;`
+                                                const dados = `Título: ${i.Title}, Descrição: ${desc}, Preço Venda: ${precos.venda}, Locação Pura: ${precos.locacao}, TOTAL MENSAL (Aluguel+Cond+IPTU): ${precos.totalLocacaoStr}, Link: ${i.DetailViewUrl}`;
                         
                         const payloadLocal = [...conversa, { "role": "user", "parts": [{ "text": `INFORMAÇÃO DE SISTEMA: Apresente de forma muito resumida este imóvel ao cliente usando APENAS os dados a seguir: ${dados}. \nREGRA DE SEGURANÇA MÁXIMA: É ESTRITAMENTE PROIBIDO inventar, deduzir, criar ou alterar URLs e características. Você DEVE repassar o Link exatamente como está nos dados fornecidos e nunca oferecer opções que não estejam listadas aqui.` }] }];
 
