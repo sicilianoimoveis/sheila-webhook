@@ -438,7 +438,7 @@ async function processarDisparoRecadastramento(id_imovel) {
 async function gerarTokenSigafy() {
     try {
         console.log("LOG_DEBUG: Tentando autenticar na Sigafy com o usuário:", process.env.SIGAFY_USER);
-        const response = await axios.post("https://projetos.sigafy.com.br/api/v1/auth", {
+        const response = await axios.post("https://projetos.sigafy.com.br/api/v1/quote/bail-auth", {
             email: process.env.SIGAFY_USER,
             password: process.env.SIGAFY_PASSWORD
         });
