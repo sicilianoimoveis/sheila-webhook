@@ -200,16 +200,23 @@ const obterPrecosFormatados = (imovel) => {
     const pVenda = parseFloat(v(imovel?.Details?.ListPrice)) || 0;
     const pLocacao = parseFloat(v(imovel?.Details?.RentalPrice)) || 0;
     const condo = parseFloat(v(imovel?.Details?.PropertyAdministrationFee)) || 0;
-    const iptu = parseFloat(v(imovel?.Details?.YearlyTax)) || 0;
+    const iptu = parseFloat(v(imovel?.Details?.YearlyTax)) || 0; // Algumas integrações enviam mensal aqui, outras anual. Assumiremos mensal conforme padrão Zap/Imovelweb.
     
     let pVendaStr = pVenda > 0 ? `R$ ${pVenda.toLocaleString('pt-BR')}` : 'Não disponível';
     let pLocacaoStr = pLocacao > 0 ? `R$ ${pLocacao.toLocaleString('pt-BR')}` : 'Não disponível';
     let condoStr = condo > 0 ? `R$ ${condo.toLocaleString('pt-BR')}` : 'Não informado';
     let iptuStr = iptu > 0 ? `R$ ${iptu.toLocaleString('pt-BR')}` : 'Não informado';
-    
-    return { venda: pVendaStr, locacao: pLocacaoStr, condominio: condoStr, iptu: iptuStr, pVenda, pLocacao };
-};
 
+    // 🎯 SOMA AUTOMÁTICA PARA ECONOMIZAR TOKENS DA IA
+    let totalLocacao = 0;
+    let totalLocacaoStr = 'Não aplicável';
+    if (pLocacao > 0) {
+        totalLocacao = pLocacao + condo + iptu;
+        totalLocacaoStr = `R$ ${totalLocacao.toLocaleString('pt-BR')} (Soma de Aluguel + Cond + IPTU)`;
+    }
+    
+    return { venda: pVendaStr, locacao: pLocacaoStr, condominio: condoStr, iptu: iptuStr, pVenda, pLocacao, totalLocacaoStr };
+};
 // ==========================================
 // --- INTEGRAÇÃO SIGAFY E CRM ---
 // ==========================================
@@ -679,8 +686,9 @@ app.get('/chat/:sender', (req, res) => {
     const mensagensFiltradas = conversa.filter(m => {
         const txt = m.parts && m.parts[0] ? m.parts[0].text : (m.text || "");
         return txt && 
-               !txt.includes("DADOS TÉCNICOS PARA CONSULTA") && 
+               !txt.includes("DADOS TÉCNICOS") && 
                !txt.includes("INFORMAÇÃO INTERNA") && 
+               !txt.includes("INFORMAÇÃO DE SISTEMA") && 
                !txt.includes("CONSULTA DE IMÓVEL") && 
                !txt.includes("O nome deste cliente é");
     });
@@ -833,6 +841,10 @@ app.post('/webhook', async (req, res) => {
     atualizarIndiceLeads(sender, nomeParaSalvar, origemDetectada);
 
     let textoCliente = msgData.text?.body;
+    // 🎯 INTERCEPTADOR DE MENSAGENS AUTOMÁTICAS DE PORTAIS (Wimoveis, Imovelweb, Zap, VivaReal)
+    if (textoCliente && textoCliente.match(/wimoveis\.com|imovelweb\.com|zapimoveis\.com|vivareal\.com/i)) {
+        textoCliente += `\n\n[INFORMAÇÃO DE SISTEMA: O cliente enviou uma mensagem com um link de portal parceiro. É ESTRITAMENTE PROIBIDO chamar a função 'buscar_imovel' para ler esse link, pois o sistema não lê URLs externas. Verifique no seu histórico acima: o sistema acabou de injetar os "DADOS TÉCNICOS" completos deste imóvel para você. Apenas use esses dados da memória e continue o atendimento naturalmente perguntando o que ele deseja saber.]`;
+    }
 
     // Atalho inteligente: Se a frase indicar anúncio de captação
     if (textoCliente && (textoCliente.toLowerCase().includes("quero anunciar meu imóvel") || textoCliente.toLowerCase().includes("anunciar meu imóvel"))) {
@@ -1137,6 +1149,12 @@ app.post('/webhook', async (req, res) => {
                 }
 
                 const idsExtraidos = functionCall.args.ids_imoveis || []; 
+                
+                // 🎯 ATUALIZA A TAG PARA EXIBIR CORRETAMENTE NA CENTRAL
+                const interesseQualificado = functionCall.args.interesse.toLowerCase();
+                if (!leadsIndex[sender]) leadsIndex[sender] = {};
+                leadsIndex[sender].purpose = (interesseQualificado.includes('loca') || interesseQualificado.includes('aluguel')) ? 'rent' : 'sale';
+                
                 atualizarIndiceLeads(sender, nomeDoCliente);
 
                 await enviarLeadParaCRM(sender, { 
@@ -1181,7 +1199,7 @@ app.post('/webhook', async (req, res) => {
                     const features = obterFeatures(imovel);
                     const precos = obterPrecosFormatados(imovel);
                     const desc = v(imovel.Details?.Description);
-                    let dados = `DADOS TÉCNICOS: ID ${imovel.ListingID}, Venda: ${precos.venda}, Locação: ${precos.locacao}, Endereço: ${enderecoSeguro}, Extras: ${features}, Descrição: ${desc}. Link: ${imovel.DetailViewUrl}.`;
+                    let dados = \DADOS TÉCNICOS: ID ${imovel.ListingID}, Venda:${precos.venda}, Locação: ${precos.locacao}, Condomínio: ${precos.condominio}, IPTU: ${precos.iptu}, TOTAL MENSAL APROXIMADO:${precos.totalLocacaoStr}. Endereço: ${enderecoSeguro}, Extras:${features}, Descrição: ${desc}. Link: ${imovel.DetailViewUrl}.`;`
                     conversa.push({ "role": "user", "parts": [{ "text": dados }] });
                 } else {
                     conversa.push({ "role": "user", "parts": [{ "text": `O imóvel "${termo}" não foi localizado.` }] });
@@ -1259,7 +1277,7 @@ app.post('/webhook', async (req, res) => {
                         
                         contextoOpcoes += `- Link: ${i.DetailViewUrl}\n  ID: ${i.ListingID}\n  Venda: ${precos.venda} | Locação: ${precos.locacao}\n  Endereço permitido: ${enderecoSeguro}\n  Quartos: ${v(i.Details?.Bedrooms)} | Suítes: ${v(i.Details?.Suites)} | Vagas: ${v(i.Details?.Garage)}\n  Extras: ${features}\n\n`;
 
-                                                const dados = `Título: ${i.Title}, Descrição: ${desc}, Preço Venda: ${precos.venda}, Preço Locação: ${precos.locacao}, Link: ${i.DetailViewUrl}`;
+                                                const dados = \Título: ${i.Title}, Descrição: ${desc}, Preço Venda: ${precos.venda}, Locação Pura: ${precos.locacao}, TOTAL MENSAL (Aluguel+Cond+IPTU): ${precos.totalLocacaoStr}, Link:${i.DetailViewUrl}`;`
                         
                         const payloadLocal = [...conversa, { "role": "user", "parts": [{ "text": `INFORMAÇÃO DE SISTEMA: Apresente de forma muito resumida este imóvel ao cliente usando APENAS os dados a seguir: ${dados}. \nREGRA DE SEGURANÇA MÁXIMA: É ESTRITAMENTE PROIBIDO inventar, deduzir, criar ou alterar URLs e características. Você DEVE repassar o Link exatamente como está nos dados fornecidos e nunca oferecer opções que não estejam listadas aqui.` }] }];
 
