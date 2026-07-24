@@ -507,7 +507,7 @@ async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
             "partners": { "partners_cpf": "", "partners_nome": "", "partners_fone": "", "partners_email": "", "partners_percent": "" },
             "cobertura": { "danos": true, "pinturaInterna": true, "multa": true, "pinturaExterna": false },
             "semImovelDefinido": dadosCliente.id_imovel ? false : true, "imovelPretendido": imovelPretendidoPayload,
-            "imobiliaria": { "id": 1840, "atendente": "Siciliano Imoveis" },
+            "imobiliaria": { "id": 1840, "atendente": "Siciliano Imoveis" }, // 🎯 ID CORRIGIDO AQUI
             "pretendente": {
                 "documento": cpfLimpo, "nome": dadosCliente.nome, "sexo": "MASCULINO", "dataNascimento": dataNascFormatada,
                 "estadoCivil": "Solteiro(a)", "celular": celularLimpo, "fone": celularLimpo, "email": dadosCliente.email || "nao_informado@email.com",
@@ -620,10 +620,23 @@ async function enviarLeadParaCRM(sender, contexto, idsImoveis = []) {
     else if (lead.imoveisInteresse && lead.imoveisInteresse.length > 0) { id_imovel = lead.imoveisInteresse[lead.imoveisInteresse.length - 1]; }
 
     const codigoOrigem = parseInt(ORIGENS[lead.origem] || ORIGENS["whatsapp_direto"]);
+    
+    // 🎯 NOVO EXTRATOR DE DADOS DA SIGAFY
     let alertaSeguro = "";
-    if (lead.dadosSeguro) { alertaSeguro = `\n\n🛡️ [SEGURO FIANÇA PRÉ-COTADO] 🛡️\nO cliente já forneceu dados (CPF: ${lead.dadosSeguro.cpf}). Status API Sigafy: ${lead.dadosSeguro.status}.\n`; }
+    if (lead.dadosSeguro) { 
+        const numeroProcesso = lead.dadosSeguro.detalhes?.data?.numeroProcesso || lead.dadosSeguro.detalhes?.numeroProcesso || "Não retornado";
+        alertaSeguro = `\n\n🛡️ [SEGURO FIANÇA PRÉ-COTADO] 🛡️\nCPF: ${lead.dadosSeguro.cpf}\nProcesso Sigafy: ${numeroProcesso}\nStatus da API: ${lead.dadosSeguro.status}\n`; 
+        
+        // Tenta extrair o resumo da análise para o corretor ler direto no painel
+        const analise = lead.dadosSeguro.detalhes?.data?.analiseAutomatica;
+        if (analise && Array.isArray(analise)) {
+             alertaSeguro += `\nResultado das Seguradoras:\n`;
+             analise.forEach(a => { 
+                 alertaSeguro += `- ${a.seguradora || 'Seguradora'}: ${a.status} (Limite Aprovado: R$ ${a.limiteAprovado || 'N/A'})\n`; 
+             });
+        }
+    }
 
-    // --- SOLUÇÃO GLOBAL DO LINK DA CONVERSA ---
     const linkEspelho = `https://webhook-siciliano-production.up.railway.app/chat/${sender}?token=${process.env.CHAT_ACCESS_TOKEN}`;
     const observacoesFinais = (contexto.observacoes || "") + notasAdicionais + alertaSeguro + `\n\n🔗 Link Histórico da Sheila: ${linkEspelho}`;
 
@@ -645,26 +658,42 @@ async function enviarLeadParaCRM(sender, contexto, idsImoveis = []) {
         const response = await axios.post(url, payload, config);
         const leadIdGerado = response.data?.id || response.data?.data?.id;
 
+        // 🎯 NOVO EXTRATOR DE ARQUIVOS (PDF) PARA O CRM
         if (leadIdGerado && lead.dadosSeguro && lead.dadosSeguro.detalhes) {
-            const detalhes = lead.dadosSeguro.detalhes;
+            const dataSeguro = lead.dadosSeguro.detalhes.data || {};
             let filesArray = [];
-            if (detalhes.data && Array.isArray(detalhes.data.base64)) {
-                detalhes.data.base64.forEach((arquivoBase64, index) => {
-                    const binaryData = arquivoBase64.replace(/^data:application\/pdf;base64,/, "");
-                    filesArray.push({ name: `Cotacao_Sigafy_${index + 1}.pdf`, binary: binaryData });
+            
+            // 1. Tenta capturar a Ficha de Encaminhamento
+            if (dataSeguro.fichaEncaminhamento) {
+                const cleanBase64 = String(dataSeguro.fichaEncaminhamento).replace(/^data:application\/pdf;base64,/, "");
+                filesArray.push({ name: `Ficha_Encaminhamento_${dataSeguro.numeroProcesso || 'Sigafy'}.pdf`, binary: cleanBase64 });
+            }
+
+            // 2. Tenta capturar as cotações aprovadas das seguradoras (se vierem em base64)
+            if (Array.isArray(dataSeguro.analiseAutomatica)) {
+                dataSeguro.analiseAutomatica.forEach((analise) => {
+                    if (analise.arquivo) {
+                        const cleanBase64 = String(analise.arquivo).replace(/^data:application\/pdf;base64,/, "");
+                        filesArray.push({ name: `Cotacao_${analise.seguradora || 'Aprovada'}.pdf`, binary: cleanBase64 });
+                    }
                 });
             }
+
+            // Envia os PDFs anexados ao lead no CRM
             if (filesArray.length > 0) {
                 const payloadArquivos = { id: leadIdGerado, files: filesArray };
-                try { await axios.post(url, payloadArquivos, config); } catch (errUpload) {}
+                try { 
+                    await axios.post(url, payloadArquivos, config); 
+                    console.log(`✅ PDFs da cotação anexados com sucesso ao Lead ${leadIdGerado}!`);
+                } catch (errUpload) { console.error("Erro ao subir PDFs para o CRM:", errUpload.message); }
             }
         }
+        
         lead.enviadoParaCRM = true;
         if (contexto.nome) lead.nome = contexto.nome;
         atualizarIndiceLeads(sender, lead.nome, lead.origem);
     } catch (error) { console.error("ERRO ao enviar CRM:", error.message); }
 }
-
 app.get('/limpar-historico/:sender', async (req, res) => {
     const { sender } = req.params;
     if (historicos[sender]) {
