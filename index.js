@@ -440,7 +440,7 @@ async function gerarTokenSigafy() {
         console.log("LOG_DEBUG: Tentando autenticar na Sigafy com o usuário:", process.env.SIGAFY_USER);
         const response = await axios.post("https://projetos.sigafy.com.br/api/v1/quote/bail-auth", {
             email: process.env.SIGAFY_USER,
-            password: process.env.SIGAFY_PASSWORD
+            password: process.env.SIGAFY_PASS
         });
         console.log("✅ Token Sigafy gerado com sucesso!");
         return response.data.token || response.data.access_token;
