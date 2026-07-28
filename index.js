@@ -619,7 +619,13 @@ async function enviarLeadParaCRM(sender, contexto, idsImoveis = []) {
     if (idsImoveis && idsImoveis.length > 0) { id_imovel = idsImoveis[0]; if (idsImoveis.length > 1) { notasAdicionais = `\n\n⚠️ ATENÇÃO CORRETOR: O cliente também tem interesse em visitar os imóveis IDs: ${idsImoveis.join(', ')}`; } } 
     else if (lead.imoveisInteresse && lead.imoveisInteresse.length > 0) { id_imovel = lead.imoveisInteresse[lead.imoveisInteresse.length - 1]; }
 
-    const codigoOrigem = parseInt(ORIGENS[lead.origem] || ORIGENS["whatsapp_direto"]);
+    // 🎯 TRADUTOR INTELIGENTE DE ORIGEM (Garante que letras maiúsculas não quebrem o código)
+    const origemNormalizada = lead.origem ? String(lead.origem).toLowerCase() : "whatsapp_direto";
+    
+    // Se a origem detectada for Facebook, mas não tivermos o ID dele no dicionário, mandamos pro Instagram temporariamente (ou você pode adicionar "facebook": "ID" no const ORIGENS)
+    const chaveDicionario = origemNormalizada === "facebook" ? "instagram" : origemNormalizada;
+    
+    const codigoOrigem = parseInt(ORIGENS[chaveDicionario] || ORIGENS["whatsapp_direto"]);
     
     // 🎯 NOVO EXTRATOR DE DADOS DA SIGAFY
     let alertaSeguro = "";
@@ -820,7 +826,20 @@ app.post('/disparar-reengajamento', async (req, res) => {
 
 app.get('/leads', (req, res) => {
     if (req.query.token !== process.env.CHAT_ACCESS_TOKEN) return res.status(403).send("Acesso negado.");
-    res.json(Object.values(leadsIndex).sort((a, b) => new Date(b.ultimaInteracao) - new Date(a.ultimaInteracao)));
+    
+    // 🛡️ 1. FILTRO DE LIMPEZA: Ignora leads corrompidos (ex: sender "undefined")
+    const leadsValidos = Object.values(leadsIndex).filter(lead => lead.sender && lead.sender !== "undefined");
+
+    // 🛡️ 2. ORDENAÇÃO BLINDADA: Previne que "Invalid Date" (NaN) quebre a fila
+    const leadsOrdenados = leadsValidos.sort((a, b) => {
+        // Se a data for inválida, o .getTime() retorna NaN. O "|| 0" transforma NaN em 0 (data super antiga).
+        const dataA = new Date(a.ultimaInteracao).getTime() || 0;
+        const dataB = new Date(b.ultimaInteracao).getTime() || 0;
+        
+        return dataB - dataA;
+    });
+
+    res.json(leadsOrdenados);
 });
 
 app.post('/webhook', async (req, res) => {
@@ -1004,7 +1023,7 @@ app.post('/webhook', async (req, res) => {
             console.log("LOG_DEBUG: A Sheila chamou a função:", functionCall.name);
 
             if (functionCall.name === "iniciar_captacao") {
-                if (!leadsIndex[sender]) atualizarIndiceLeads(sender, null, "WhatsApp"); 
+                if (!leadsIndex[sender]) atualizarIndiceLeads(sender, null); 
                 leadsIndex[sender].categoria = 'captacao';
                 leadsIndex[sender].isCaptacao = true;
                 leadsIndex[sender].ultimaInteracao = new Date().toISOString();
@@ -1151,7 +1170,7 @@ app.post('/webhook', async (req, res) => {
             else if (functionCall.name === "processar_captacao") {
                 const { nome, endereco, intencao } = functionCall.args;
                 
-                atualizarIndiceLeads(sender, nome, "WhatsApp");
+                atualizarIndiceLeads(sender, nome);
                 
                 leadsIndex[sender].categoria = 'processado'; 
                 leadsIndex[sender].ultimaInteracao = new Date().toISOString();
