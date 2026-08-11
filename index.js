@@ -439,7 +439,7 @@ async function gerarTokenSigafy() {
     try {
         console.log("LOG_DEBUG: Tentando autenticar na Sigafy com o usuário:", process.env.SIGAFY_USER);
         const response = await axios.post("https://projetos.sigafy.com.br/api/v1/quote/bail-auth", {
-            email: process.env.SIGAFY_USER,
+            username: process.env.SIGAFY_USER,
             password: process.env.SIGAFY_PASS
         });
         console.log("✅ Token Sigafy gerado com sucesso!");
@@ -1167,12 +1167,18 @@ app.post('/webhook', async (req, res) => {
                     salvarHistorico(sender, conversa);
                 }
             }
-            else if (functionCall.name === "processar_captacao") {
+           else if (functionCall.name === "processar_captacao") {
                 const { nome, endereco, intencao } = functionCall.args;
                 
                 atualizarIndiceLeads(sender, nome);
                 
-                leadsIndex[sender].categoria = 'processado'; 
+                // 🎯 CORREÇÃO DA CENTRAL: Mantemos a categoria como 'captacao' para não perder a etiqueta
+                leadsIndex[sender].categoria = 'captacao'; 
+                
+                // 🎯 SALVA O INTERESSE PARA A CENTRAL MOSTRAR SE É ALUGUEL OU VENDA
+                const intencaoFormatada = String(intencao).toLowerCase();
+                leadsIndex[sender].purpose = (intencaoFormatada.includes('loca') || intencaoFormatada.includes('aluguel')) ? 'rent' : 'sale';
+                
                 leadsIndex[sender].ultimaInteracao = new Date().toISOString();
                 fs.promises.writeFile(LEADS_INDEX_PATH, JSON.stringify(leadsIndex, null, 2)).catch(console.error);
                 
