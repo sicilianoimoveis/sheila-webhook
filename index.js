@@ -39,7 +39,8 @@ const ORIGENS = {
     "chaves_na_mao": "7330",
     "vivareal": "7331",
     "zap": "7332",
-    "leads4sales": "7333"
+    "leads4sales": "7333",
+    "lead4sales": "7333" // 🎯 Adicionado o singular para garantir que nunca falhe
 };
 
 function traduzirOrigem(nomePortal) {
@@ -50,7 +51,7 @@ function traduzirOrigem(nomePortal) {
     if (texto.includes("chaves")) return "chaves_na_mao"; 
     if (texto.includes("zap")) return "zap"; 
     if (texto.includes("instagram")) return "instagram"; 
-    if (texto.includes("leads4sales")) return "lead4sales"; 
+    if (texto.includes("lead4sales") || texto.includes("leads4sales")) return "leads4sales"; // 🎯 Corrigido aqui
     return "whatsapp_direto"; 
 }
 
@@ -1439,7 +1440,7 @@ app.post('/webhook-leads4sales', async (req, res) => {
         const jaAtendidoParaEsteImovel = imoveisJaAtendidos.includes(idDefinitivo);
 
         // Atualiza o índice do lead com o imóvel atual
-        atualizarIndiceLeads(celular, nome, 'lead4sales', false, idDefinitivo);
+        atualizarIndiceLeads(celular, nome, 'leads4sales', false, idDefinitivo);
 
         if (!jaAtendidoParaEsteImovel) {
             let contextoOculto = `DADOS TÉCNICOS PARA CONSULTA INTERNA DA SHEILA: Novo interesse do lead no portal Leads4Sales.\nNome: ${nome}\nMensagem: "${mensagemPortal}"\nID do Imóvel Novo: ${idDefinitivo}\n`;
