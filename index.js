@@ -1473,6 +1473,105 @@ app.post('/webhook-leads4sales', async (req, res) => {
     }
 });
 
+// ==========================================
+// --- WEBHOOK: CHAVES NA MÃO ---
+// ==========================================
+
+// 1. Middleware de Autenticação Basic exigido pela plataforma
+const authChavesNaMao = (req, res, next) => {
+    const emailEnv = process.env.CHAVES_NA_MAO_EMAIL;
+    const tokenEnv = process.env.CHAVES_NA_MAO_TOKEN;
+    
+    if (!emailEnv || !tokenEnv) {
+        console.warn("⚠️️ Variáveis CHAVES_NA_MAO_EMAIL ou CHAVES_NA_MAO_TOKEN não configuradas no Railway!");
+    }
+
+    const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
+    const decodificado = Buffer.from(b64auth, 'base64').toString();
+    const [email, token] = decodificado.split(':');
+
+    // Valida se as credenciais enviadas batem com as do Railway
+    if (email && token && email === emailEnv && token === tokenEnv) {
+        return next();
+    }
+    
+    console.log(`❌ Falha de autenticação Chaves na Mão. Recebido: ${email}`);
+    return res.status(401).json({ error: "Acesso não autorizado." });
+};
+
+// 2. Rota de recebimento do Lead
+app.post('/webhook-chavesnamao', authChavesNaMao, async (req, res) => {
+    // Responde imediatamente com sucesso para evitar timeout do portal
+    if (!res.headersSent) res.status(200).json({ status: "success", message: "Lead recebido com sucesso" });
+
+    try {
+        const data = req.body;
+        console.log("LOG_DEBUG: Body recebido do Chaves na Mão:", JSON.stringify(data, null, 2));
+
+        // Extração dos dados conforme a documentação do portal
+        const nome = data.name || 'Cliente';
+        const telefoneBruto = data.phone || "";
+        // Prioriza a referência interna, se não existir, usa o ID do anúncio
+        const referencia = String(data.ad?.reference || data.ad?.id || "").trim();
+        const mensagemPortal = data.message || 'Gostaria de informações sobre este imóvel.';
+
+        if (!telefoneBruto || !referencia) {
+            console.log("⚠️ Webhook Chaves na Mão ignorado: Telefone ou Referência ausentes.");
+            return;
+        }
+        
+        let celular = telefoneBruto.replace(/\D/g, '');
+        if (!celular.startsWith("55")) celular = `55${celular}`;
+
+        // Busca o imóvel na base XML para obter dados técnicos para a Sheila
+        const imovel = cacheImoveis.find(i => String(i.ListingID) === referencia);
+        // Utiliza a URL do XML, ou a URL que o portal envia no objeto "ad"
+        const linkImovel = imovel ? imovel.DetailViewUrl : (data.ad?.url || `https://sicilianoimoveis.com.br/imovel/${referencia}`);
+
+        // Recupera o histórico antes de alterar o índice
+        let conversa = obterHistorico(celular);
+        
+        // Verifica se este lead já foi atendido para este imóvel
+        const imoveisJaAtendidos = leadsIndex[celular]?.imoveisInteresse || [];
+        const jaAtendidoParaEsteImovel = imoveisJaAtendidos.includes(referencia);
+
+        // Atualiza a origem garantindo o registro correto para o envio ao CRM
+        atualizarIndiceLeads(celular, nome, 'chaves_na_mao', false, referencia);
+
+        if (!jaAtendidoParaEsteImovel) {
+            // Injeta o contexto oculto para a Sheila ler o imóvel sem precisar que o cliente repita
+            let contextoOculto = `DADOS TÉCNICOS PARA CONSULTA INTERNA DA SHEILA: Novo interesse do lead no portal Chaves na Mão.\nNome: ${nome}\nMensagem: "${mensagemPortal}"\nID do Imóvel Novo: ${referencia}\n`;
+            
+            if (imovel) {
+                const precos = obterPrecosFormatados(imovel);
+                contextoOculto += `Dados: Venda ${precos.venda}, Locação ${precos.locacao}, Endereço: ${obterEnderecoSeguro(imovel)}.`;
+            }
+
+            conversa.push({ role: "user", parts: [{ text: contextoOculto }] });
+            const textoTemplate = `Olá ${nome}, recebemos sua solicitação para o imóvel: ${linkImovel}.`;
+            conversa.push({ role: "model", parts: [{ text: textoTemplate }] });
+            
+            salvarHistorico(celular, conversa);
+
+            // Tenta disparar o template oficial de WhatsApp da Meta
+            try {
+                await enviarTemplateLead(celular, nome, linkImovel);
+                console.log(`✅ Template Chaves na Mão enviado com sucesso para ${nome} (${celular}) sobre o imóvel ${referencia}`);
+            } catch (erroTemplate) {
+                console.error(`❌ ERRO ao enviar template Meta para ${celular}:`, erroTemplate.response?.data || erroTemplate.message);
+                // Fallback: se o template falhar, envia mensagem de texto simples
+                await enviarMensagem(celular, textoTemplate);
+            }
+
+        } else {
+            console.log(`LOG_DEBUG: Lead ${celular} já atendido para o imóvel ${referencia}. Ignorando novo disparo.`);
+        }
+
+    } catch (error) {
+        console.error("❌ ERRO geral ao processar webhook do Chaves na Mão:", error.message);
+    }
+});
+
 app.post('/webhook-imovelweb', async (req, res) => {
     // Responde imediatamente para o portal não achar que deu timeout
     if (!res.headersSent) res.status(200).send('Webhook recebido com sucesso');
