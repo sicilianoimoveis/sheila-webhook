@@ -464,8 +464,14 @@ async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
 
         const tipoImovelXML = v(imovel?.Details?.PropertyType).toLowerCase();
         let tipoImovelSigafy = "apartamento"; 
-        if (tipoImovelXML.includes("casa")) tipoImovelSigafy = "casa";
-        else if (tipoImovelXML.includes("comercial") || tipoImovelXML.includes("loja")) tipoImovelSigafy = "sala comercial";
+        let tipoLocacaoSigafy = "residencial"; // 🎯 Valor padrão inicial
+
+        if (tipoImovelXML.includes("casa")) {
+            tipoImovelSigafy = "casa";
+        } else if (tipoImovelXML.includes("comercial") || tipoImovelXML.includes("loja") || tipoImovelXML.includes("sala")) {
+            tipoImovelSigafy = "sala comercial";
+            tipoLocacaoSigafy = "comercial"; // 🎯 Troca automaticamente para comercial
+        }
 
         let dadosProprietario = await buscarProprietarioNoCRM(imovel.ListingID);
         if (!dadosProprietario) {
@@ -485,7 +491,12 @@ async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
         }
 
         const cpfLimpo = dadosCliente.cpf ? dadosCliente.cpf.replace(/\D/g, '') : "";
-        const celularLimpo = dadosCliente.celular ? dadosCliente.celular.replace(/\D/g, '') : "";
+        
+        // HIGIENIZAÇÃO DO TELEFONE
+        let celularLimpo = dadosCliente.celular ? dadosCliente.celular.replace(/\D/g, '') : "";
+        if (celularLimpo.startsWith('55') && celularLimpo.length > 11) {
+            celularLimpo = celularLimpo.substring(2);
+        }
 
         const loc = imovel?.Location || {};
         const imovelPretendidoPayload = {
@@ -501,7 +512,9 @@ async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
 
         const payload = {
             "gratuito": true, "observacao": "Cotação via Sheila IA", "tipoGarantia": "seguro fianca", "valorTitulo": pLocacao,
-            "tipoPessoa": "fisica", "tipoLocacao": "residencial", "tipoimovel": tipoImovelSigafy || "casa", 
+            "tipoPessoa": "fisica", 
+            "tipoLocacao": tipoLocacaoSigafy, // 🎯 Campo dinâmico corrigido
+            "tipoimovel": tipoImovelSigafy, 
             "valorAluguel": pLocacao, "valorCondominio": vCondominio, "valorAgua": 0, "valorLuz": 0, "valorGas": 0, "valorIptu": vIptu,
             "codigo_imovel": dadosCliente.id_imovel || "Não informado", "parceiro": "", "vigencia_meses": 30,
             "administracao": "Sim", "atividade": "Atividade", "experiencia": "Experiencia no ramo", "contato": dadosCliente.nome,
@@ -509,7 +522,7 @@ async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
             "partners": { "partners_cpf": "", "partners_nome": "", "partners_fone": "", "partners_email": "", "partners_percent": "" },
             "cobertura": { "danos": true, "pinturaInterna": true, "multa": true, "pinturaExterna": false },
             "semImovelDefinido": dadosCliente.id_imovel ? false : true, "imovelPretendido": imovelPretendidoPayload,
-            "imobiliaria": { "id": 1840, "atendente": "Siciliano Imoveis" }, // 🎯 ID CORRIGIDO AQUI
+            "imobiliaria": { "id": 1840, "atendente": "Siciliano Imoveis" },
             "pretendente": {
                 "documento": cpfLimpo, "nome": dadosCliente.nome, "sexo": "MASCULINO", "dataNascimento": dataNascFormatada,
                 "estadoCivil": "Solteiro(a)", "celular": celularLimpo, "fone": celularLimpo, "email": dadosCliente.email || "nao_informado@email.com",
@@ -525,7 +538,6 @@ async function solicitarCotacaoSigafy(dadosCliente, imovel, telefoneCliente) {
         return response.data;
     } catch (error) { console.error("Erro ao gerar cotação Sigafy:", error.message); return null; }
 }
-
 async function enviarMensagem(para, texto) {
     const url = `https://graph.facebook.com/v25.0/1110417002164010/messages`;
     try {
@@ -979,6 +991,17 @@ app.post('/webhook', async (req, res) => {
             "systemInstruction": { "parts": [{ "text": promptDinamico }] },
             "contents": conversa,
             "tools": [{ "functionDeclarations": [
+              {
+                        "name": "encaminhar_adm",
+                        "description": "Use esta função EXCLUSIVAMENTE para encerrar o atendimento quando o cliente for um prestador de serviços, parceria, buscar oportunidades de trabalho, ou procurar o setor administrativo/financeiro.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "nome": { "type": "string", "description": "Nome do contato" }
+                            },
+                            "required": ["nome"]
+                        }
+                    },
                 { 
                     "name": "atualizar_status_imovel_crm", 
                     "description": "Use APENAS quando estiver falando com um PROPRIETÁRIO e ele confirmar a situação atual do imóvel e o valor.", 
@@ -1041,6 +1064,32 @@ app.post('/webhook', async (req, res) => {
                     conversa.push({ "role": "model", "parts": [{ "text": texto }] });
                     salvarHistorico(sender, conversa);
                 }
+            }
+                else if (functionCall.name === "encaminhar_adm") {
+                let nomeDoCliente = functionCall.args.nome;
+                const nomeAtual = leadsIndex[sender]?.nome;
+                
+                if (!nomeDoCliente || nomeDoCliente.toLowerCase() === "cliente") {
+                    nomeDoCliente = nomeAtual || "Cliente Administrativo";
+                }
+
+                if (!leadsIndex[sender]) leadsIndex[sender] = {};
+                
+                // 🎯 ATUALIZA A TAG PARA EXIBIR ADM NA CENTRAL E REMOVE BOTÃO LARANJA
+                leadsIndex[sender].purpose = 'adm';
+                leadsIndex[sender].enviadoParaCRM = true; 
+                atualizarIndiceLeads(sender, nomeDoCliente);
+
+                console.log(`✅ Contato ${sender} marcado como Administrativo. Não será enviado ao CRM.`);
+
+                // A Sheila encerra o assunto entregando o número oficial
+                const msgAdm = "Entendido perfeitamente! Como o seu contato é referente a assuntos administrativos, parcerias ou financeiro, peço que envie uma mensagem diretamente para a nossa equipe responsável através do WhatsApp: (21) 98555-9544. Eles darão o direcionamento correto por lá. Tenha um excelente dia!";
+                
+                await enviarMensagem(sender, msgAdm);
+                conversa.push({ "role": "model", "parts": [{ "text": msgAdm }] });
+                salvarHistorico(sender, conversa);
+                
+                return res.sendStatus(200); // 🎯 Encerra o fluxo sem tentar enviar para a Apresenta.me
             }
             else if (functionCall.name === "atualizar_status_imovel_crm") {
                 const { id_imovel, lock, status, valor_atualizado, tipo_negocio } = functionCall.args;
