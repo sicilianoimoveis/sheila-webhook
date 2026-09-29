@@ -1480,24 +1480,49 @@ app.post('/webhook-leads4sales', async (req, res) => {
 
 // 1. Middleware de Autenticação Basic exigido pela plataforma
 const authChavesNaMao = (req, res, next) => {
-    const emailEnv = process.env.CHAVES_NA_MAO_EMAIL;
-    const tokenEnv = process.env.CHAVES_NA_MAO_TOKEN;
+    // Puxa as variáveis do Railway e força a remoção de espaços em branco invisíveis
+    const emailEnv = (process.env.CHAVES_NA_MAO_EMAIL || "").trim();
+    const tokenEnv = (process.env.CHAVES_NA_MAO_TOKEN || "").trim();
     
     if (!emailEnv || !tokenEnv) {
-        console.warn("⚠️️ Variáveis CHAVES_NA_MAO_EMAIL ou CHAVES_NA_MAO_TOKEN não configuradas no Railway!");
+        console.warn("⚠ Variáveis CHAVES_NA_MAO_EMAIL ou CHAVES_NA_MAO_TOKEN não configuradas no Railway!");
     }
 
-    const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
-    const decodificado = Buffer.from(b64auth, 'base64').toString();
-    const [email, token] = decodificado.split(':');
+    const authHeader = req.headers.authorization || '';
 
-    // Valida se as credenciais enviadas batem com as do Railway
-    if (email && token && email === emailEnv && token === tokenEnv) {
+    // Se o portal não enviar a palavra 'Basic ', barramos imediatamente
+    if (!authHeader.startsWith('Basic ')) {
+        res.set('WWW-Authenticate', 'Basic realm="Acesso Restrito"');
+        return res.status(401).json({ error: "Autenticação Basic obrigatória." });
+    }
+
+    // Extrai e decodifica a chave Base64 enviada pelo portal
+    const b64auth = authHeader.split(' ')[1] || '';
+    const decodificado = Buffer.from(b64auth, 'base64').toString('utf-8');
+
+    // Corta a string no exato local dos dois pontos ':' para separar email do token
+    const separadorIndex = decodificado.indexOf(':');
+    if (separadorIndex === -1) {
+        res.set('WWW-Authenticate', 'Basic realm="Acesso Restrito"');
+        return res.status(401).json({ error: "Formato Base64 inválido." });
+    }
+
+    // Isola o e-mail e o token recebidos, removendo também espaços neles
+    const emailRecebido = decodificado.substring(0, separadorIndex).trim();
+    const tokenRecebido = decodificado.substring(separadorIndex + 1).trim();
+
+    // Compara os dados blindados
+    if (emailRecebido === emailEnv && tokenRecebido === tokenEnv) {
         return next();
     }
     
-    console.log(`❌ Falha de autenticação Chaves na Mão. Recebido: ${email}`);
-    return res.status(401).json({ error: "Acesso não autorizado." });
+    // Se falhar, o servidor agora vai imprimir no log do Railway EXATAMENTE o que está diferente
+    console.log(`❌ Falha de autenticação Chaves na Mão.`);
+    console.log(`   - Email Recebido: '${emailRecebido}' | Email Railway: '${emailEnv}'`);
+    console.log(`   - Token Recebido: '${tokenRecebido}' | Token Railway: '${tokenEnv}'`);
+    
+    res.set('WWW-Authenticate', 'Basic realm="Acesso Restrito"');
+    return res.status(401).json({ error: "Credenciais inválidas." });
 };
 
 // 2. Rota de recebimento do Lead
