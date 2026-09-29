@@ -37,10 +37,11 @@ const ORIGENS = {
     "instagram": "7328",
     "imovelweb": "7329",
     "chaves_na_mao": "7330",
+    "chaves na mão": "7330", // 🎯 NOVA LINHA ADICIONADA AQUI
     "vivareal": "7331",
     "zap": "7332",
     "leads4sales": "7333",
-    "lead4sales": "7333" // 🎯 Adicionado o singular para garantir que nunca falhe
+    "lead4sales": "7333" 
 };
 
 function traduzirOrigem(nomePortal) {
@@ -1536,7 +1537,7 @@ app.post('/webhook-chavesnamao', authChavesNaMao, async (req, res) => {
         const jaAtendidoParaEsteImovel = imoveisJaAtendidos.includes(referencia);
 
         // Atualiza a origem garantindo o registro correto para o envio ao CRM
-        atualizarIndiceLeads(celular, nome, 'chaves_na_mao', false, referencia);
+        atualizarIndiceLeads(celular, nome, 'Chaves na Mão', false, referencia);
 
         if (!jaAtendidoParaEsteImovel) {
             // Injeta o contexto oculto para a Sheila ler o imóvel sem precisar que o cliente repita
