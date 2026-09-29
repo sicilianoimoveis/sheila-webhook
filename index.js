@@ -1529,51 +1529,29 @@ app.post('/webhook-leads4sales', async (req, res) => {
 
 // 1. Middleware de Autenticação Basic exigido pela plataforma
 const authChavesNaMao = (req, res, next) => {
-    // Puxa as variáveis do Railway e força a remoção de espaços em branco invisíveis
-    const emailEnv = (process.env.CHAVES_NA_MAO_EMAIL || "").trim();
-    const tokenEnv = (process.env.CHAVES_NA_MAO_TOKEN || "").trim();
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Basic ')) {
+        console.log('❌ Falha de autenticação Chaves na Mão. Header ausente ou incorreto.');
+        return res.status(401).send('Unauthorized');
+    }
+
+    // 1. Pega a string Base64 que vem no cabeçalho do portal
+    const tokenRecebidoBase64 = authHeader.split(' ')[1];
     
-    if (!emailEnv || !tokenEnv) {
-        console.warn("⚠ Variáveis CHAVES_NA_MAO_EMAIL ou CHAVES_NA_MAO_TOKEN não configuradas no Railway!");
+    // 2. Pega a variável exata que você guardou no Railway (que já é o Base64 deles)
+    const tokenRailwayBase64 = (process.env.CHAVES_NA_MAO_TOKEN || '').trim();
+
+    // 3. Compara diretamente as duas strings Base64
+    if (tokenRecebidoBase64 === tokenRailwayBase64) {
+        return next(); // Autenticação com sucesso! Pode entrar!
+    } else {
+        console.log('❌ Falha de autenticação Chaves na Mão (Divergência de Base64).');
+        console.log(`  - Base64 Recebido: '${tokenRecebidoBase64}'`);
+        console.log(`  - Base64 Railway : '${tokenRailwayBase64}'`);
+        return res.status(401).send('Unauthorized');
     }
-
-    const authHeader = req.headers.authorization || '';
-
-    // Se o portal não enviar a palavra 'Basic ', barramos imediatamente
-    if (!authHeader.startsWith('Basic ')) {
-        res.set('WWW-Authenticate', 'Basic realm="Acesso Restrito"');
-        return res.status(401).json({ error: "Autenticação Basic obrigatória." });
-    }
-
-    // Extrai e decodifica a chave Base64 enviada pelo portal
-    const b64auth = authHeader.split(' ')[1] || '';
-    const decodificado = Buffer.from(b64auth, 'base64').toString('utf-8');
-
-    // Corta a string no exato local dos dois pontos ':' para separar email do token
-    const separadorIndex = decodificado.indexOf(':');
-    if (separadorIndex === -1) {
-        res.set('WWW-Authenticate', 'Basic realm="Acesso Restrito"');
-        return res.status(401).json({ error: "Formato Base64 inválido." });
-    }
-
-    // Isola o e-mail e o token recebidos, removendo também espaços neles
-    const emailRecebido = decodificado.substring(0, separadorIndex).trim();
-    const tokenRecebido = decodificado.substring(separadorIndex + 1).trim();
-
-    // Compara os dados blindados
-    if (emailRecebido === emailEnv && tokenRecebido === tokenEnv) {
-        return next();
-    }
-    
-    // Se falhar, o servidor agora vai imprimir no log do Railway EXATAMENTE o que está diferente
-    console.log(`❌ Falha de autenticação Chaves na Mão.`);
-    console.log(`   - Email Recebido: '${emailRecebido}' | Email Railway: '${emailEnv}'`);
-    console.log(`   - Token Recebido: '${tokenRecebido}' | Token Railway: '${tokenEnv}'`);
-    
-    res.set('WWW-Authenticate', 'Basic realm="Acesso Restrito"');
-    return res.status(401).json({ error: "Credenciais inválidas." });
 };
-
 // 2. Rota de recebimento do Lead
 app.post('/webhook-chavesnamao', authChavesNaMao, async (req, res) => {
     // Responde imediatamente com sucesso para evitar timeout do portal
