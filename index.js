@@ -1529,26 +1529,45 @@ app.post('/webhook-leads4sales', async (req, res) => {
 
 // 1. Middleware de Autenticação Basic exigido pela plataforma
 const authChavesNaMao = (req, res, next) => {
-    const authHeader = req.headers.authorization;
+    const authHeader = req.headers.authorization || '';
 
-    if (!authHeader || !authHeader.startsWith('Basic ')) {
-        console.log('❌ Falha de autenticação Chaves na Mão. Header ausente ou incorreto.');
+    if (!authHeader.toLowerCase().startsWith('basic ')) {
+        console.log('❌ Chaves na Mão: Header ausente ou não é Basic.');
         return res.status(401).send('Unauthorized');
     }
 
-    // 1. Pega a string Base64 que vem no cabeçalho do portal
-    const tokenRecebidoBase64 = authHeader.split(' ')[1];
-    
-    // 2. Pega a variável exata que você guardou no Railway (que já é o Base64 deles)
-    const tokenRailwayBase64 = (process.env.CHAVES_NA_MAO_TOKEN || '').trim();
+    // 1. Extrair os códigos Base64 (remove a palavra 'Basic' de ambos)
+    const base64Recebido = authHeader.substring(6).trim();
+    const base64Railway = (process.env.CHAVES_NA_MAO_TOKEN || '').replace(/^Basic\s+/i, '').trim();
 
-    // 3. Compara diretamente as duas strings Base64
-    if (tokenRecebidoBase64 === tokenRailwayBase64) {
-        return next(); // Autenticação com sucesso! Pode entrar!
-    } else {
-        console.log('❌ Falha de autenticação Chaves na Mão (Divergência de Base64).');
-        console.log(`  - Base64 Recebido: '${tokenRecebidoBase64}'`);
-        console.log(`  - Base64 Railway : '${tokenRailwayBase64}'`);
+    // OPÇÃO 1 DO SUPORTE: Comparação direta do Base64
+    if (base64Recebido === base64Railway) {
+        console.log('✅ Chaves na Mão: Autenticado direto pelo Base64.');
+        return next();
+    }
+
+    // OPÇÃO 2 DO SUPORTE: Decodificar e comparar a parte após o ":"
+    try {
+        const textoRecebido = Buffer.from(base64Recebido, 'base64').toString('utf8');
+        const textoRailway = Buffer.from(base64Railway, 'base64').toString('utf8');
+
+        // Extrai apenas o que vem depois dos dois-pontos (o token real)
+        const tokenRecebido = textoRecebido.substring(textoRecebido.indexOf(':') + 1).trim();
+        const tokenRailway = textoRailway.substring(textoRailway.indexOf(':') + 1).trim();
+
+        if (tokenRecebido && tokenRailway && tokenRecebido === tokenRailway) {
+            console.log('✅ Chaves na Mão: Autenticado com sucesso pelo Token decodificado!');
+            return next();
+        }
+
+        // Se chegou aqui, os códigos são matematicamente diferentes. Logamos tudo para ver.
+        console.log('❌ FALHA CHAVES NA MÃO: As credenciais não batem.');
+        console.log(`Base64 Recebido: [${base64Recebido}]`);
+        console.log(`Base64 Railway : [${base64Railway}]`);
+        return res.status(401).send('Unauthorized');
+        
+    } catch (error) {
+        console.log('❌ Chaves na Mão: Erro na leitura dos tokens.');
         return res.status(401).send('Unauthorized');
     }
 };
